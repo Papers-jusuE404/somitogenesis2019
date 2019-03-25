@@ -58,12 +58,6 @@ echo e17_SII-2
 grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e17_SII-2.flagstat 
 echo e17_SIII-2
 grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e17_SIII-2.flagstat 
-echo e18_SI-2
-grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e18_SI-2.flagstat 
-echo e18_SII-2
-grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e18_SII-2.flagstat 
-echo e18_SIII-2
-grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e18_SIII-2.flagstat 
 echo e19_SI-2
 grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e19_SI-2.flagstat 
 echo e19_SII-2
@@ -144,3 +138,13 @@ echo e32_SIII-2
 grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e32_SIII-2.flagstat 
 echo e33_SI-2
 grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e33_SI-2.flagstat
+echo e33_SII-2
+grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e33_SII-2.flagstat
+echo e33_SIII-2
+grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e33_SIII-2.flagstat
+echo e34_SI-2
+grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e34_SI-2.flagstat
+echo e34_SII-2
+grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e34_SII-2.flagstat
+echo e34_SIII-2
+grep QC /user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/ATAC-seq/data/BWA/e34_SIII-2.flagstat
