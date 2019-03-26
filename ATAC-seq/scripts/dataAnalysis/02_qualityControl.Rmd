@@ -1,0 +1,347 @@
+---
+title: "Quality control of somite ATAC-seq data"
+date: "26 March 2019"
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(RColorBrewer)
+library(GenomicRanges)
+library(Rsamtools)
+library(GenomicAlignments)
+library(DESeq2)
+library(zoo)
+library(UpSetR)
+
+dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+
+palette(brewer.pal(n=9, "Pastel1"))
+
+#### FUNCTIONS
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols), byrow = TRUE)
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+We have ATAC-seq data for 75 samples comprising somite trios at six different developmental stages. We have processed the data and retained only good-quality, unique alignments. 
+
+```{r data}
+## metadata
+meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+
+## BAM files
+bam.files <- paste0(dir, "ATACseq/data/BWA/", meta$sample, ".noDUPs.GQ.bam")
+```
+
+We now need to decide which samples are of enough good quality for downstream analyses.
+
+We can use a number of metrics to assess this, including the insert size distribution (which should show the expected nucleosomal pattern), signal-to-noise ratio inferred from the ability to call peaks and enrihment of signal at the transcription start site (TSS) of genes.
+
+## Insert size distribution
+
+We have analysed the insert size distribution and scored the samples based on the strength of their nucleosomal pattern, from 0 to 4. Two thirds of the samples have a score of 2 or higher, representing samples with a decent to good nucleosomal pattern.
+
+```{r insSize}
+colors <- c("firebrick3", "tomato2", "cornflowerblue", "royalblue3", "royalblue4")
+names(colors) <- 0:4
+pie(table(meta$insSizeDist), col=colors, main="insert-size distribution score")
+```
+
+Luckily, the samples with different scores are spread across stages, showing no systematic biases to a particular time-point. Stage 27 is biased to lower scores but all other stages are pretty balanced.
+
+```{r scoreStage, fig.width=6}
+barplot(t(table(meta$stage, meta$insSizeDist)/rowSums(table(meta$stage, meta$insSizeDist)))*100, col=colors, xlim=c(0,7), width = 0.75, space = 0.25, ylab="% samples in each score group")
+legend("topright", legend = 0:4, col=colors, pch=15)
+```
+
+## Signal-to-noise ratio
+
+Regions of open chromatin should show and enrichment of seuencing fragments and thus appear as *peaks*, or pipleups of mapped fragments that are over background noise levels. One way to assess whether such enrichment is present in the data is to call peaks. We have used MACS2 for this, in each individual sample. 
+
+Samples with good nucleosomal patterns tend to have higher number of peaks.
+
+```{r peaks, fig.width=10}
+blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.rds"))
+peaks <- list()
+
+for(sample in meta$sample){
+  peaks[[sample]] <- read.table(paste0(dir, "ATAC-seq/peaks/individualReps/", sample, "_peaks.broadPeak"))[,-6]
+  colnames(peaks[[sample]]) <- c("chr", "start", "end", "name", "score", "fc", "pval", "qval")
+  peaks[[sample]] <- GRanges(peaks[[sample]]$chr, IRanges(peaks[[sample]]$start, peaks[[sample]]$end), fc=peaks[[sample]]$fc, fdr=peaks[[sample]]$qval, score=peaks[[sample]]$score)
+  remove <- unique(queryHits(findOverlaps(peaks[[sample]], blacklist)))
+  peaks[[sample]] <- peaks[[sample]][-remove]
+}
+
+stopifnot(identical(meta$sample, names(peaks)))
+meta$nPeaks <- unlist(lapply(peaks, length))
+
+bpInPeaks <- unlist(lapply(peaks, function(x) sum(width(x))))
+
+par(mfrow=c(1,2))
+boxplot(meta$nPeaks/1e3~meta$insSizeDist, col=colors, xlab="nucleosomal quality score", ylab="number of peaks x 1000", axes=FALSE)
+box(bty="l"); axis(1, at=1:5, labels=0:4); axis(2, las=2)
+boxplot(bpInPeaks/1e6~meta$insSizeDist, col=colors, xlab="nucleosomal quality score", ylab="basepairs in peaks (millions)", axes=FALSE)
+box(bty="l"); axis(1, at=1:5, labels=0:4); axis(2, las=2)
+```
+
+The majority of samples with a score of 0 have very low numbers of peaks, suggesting we have mostly captured background noise. Samples with scores of 2 or higher generally do well at peak calling, with 20 to 50 thousand total peaks. Samples with a score of 1 are in between, and contain a mixture of failed and decent to good peak calls. Nonetheless, all score groups have some samples that completely fail peak calling, despite having good nucleosomal patterns. Even without considering outliers, the interquartile range is quite large, with a two-fold difference in the total number of peaks between samples with good nucleosomal patterns.
+
+```{r insSizeStats}
+tmp <- sapply(0:4, function(x) summary(meta[meta$insSizeDist==x,]$nPeaks))
+colnames(tmp) <- 0:4
+tmp
+```
+
+The *fraction of reads in peaks* is a good measurement of the signal-to-noise ratio. This will of course be correlated to the total number of peaks called and therefore to the quality of the nucleosomal pattern.
+
+```{r frip}
+## read in the BAM files and count the number of reads aligning to each called peak.
+libSize <- rep(0, nrow(meta))
+names(libSize) <- meta$sample
+
+frip <- rep(0, nrow(meta))
+names(frip) <- meta$sample
+
+for(sample in meta$sample){
+  file <- BamFile(file=paste0(dir, "ATAC-seq/data/BWA/", sample, ".noDUPs.GQ.bam"), index = paste0(dir, "ATAC-seq/data/BWA/", sample, ".noDUPs.GQ.bam"), asMates=TRUE, yieldSize=50000)
+  open(file)
+  while (length(chunk <- readGAlignmentPairs(file))) {
+    libSize[sample] <- libSize[sample] + length(chunk)
+    frip[sample] <- frip[sample] + length(subsetByOverlaps(chunk, peaks[[sample]]))
+  }
+  close(file)
+}
+meta$totalPairedAlns <- libSize  # this is slightly lower than 'GQpairs' because excludes blacklisted and ignored regions
+meta$readsInPeaks <- frip
+# write.table(meta, paste0(dir, "data/ATAC-seq/metadata_ATACseq_manualScores.tab"), quote = FALSE, sep="\t", row.names = FALSE)
+
+boxplot(meta$readsInPeaks/meta$totalPairedAlns*100~meta$insSizeDist, col=colors, ylab="FRiP", xlab="nucleosomal pattern score")
+```
+
+Samples with a score of 2 or higher have around 10-25% of reads in peaks.
+
+### Reproducibility of peaks
+
+Finally, if the called peaks represent true signal, we should find the same regions in many samples. To confirm this we check how many of the bases covered by one sample's peaks are also covered in the other samples' peak calls. Below, each sample is on the x-axis; 1 corresponds to the comparison with itself, and the boxplots indicate the distribution of proportion of overlap with the other 74 samples.
+
+```{r peakOverlap, fig.width=9}
+## compute number of bp that overlap between peak sets
+peakOverlap <- matrix(ncol=length(peaks), nrow=length(peaks))
+for(i in 1:length(peaks)){
+  for(j in 1:length(peaks)){
+    peakOverlap[i,j] <- sum(width(suppressWarnings(intersect(peaks[[i]], peaks[[j]]))))
+  }
+}
+row.names(peakOverlap) <- names(peaks)
+colnames(peakOverlap) <- names(peaks)
+
+## convert into proportion
+tmp <- peakOverlap/diag(peakOverlap)  # diagonal contains overlap with itself (i.e. total bp in peaks)
+
+o <- order(meta$nPeaks, decreasing = TRUE)
+boxplot(tmp[,o], las=2, col=colors[meta$insSizeDist[o]+1], axes=FALSE, ylab="% of shared bp between peak sets")
+box(bty="l"); axis(2, las=2); mtext(side=1, line=0.5, text = "samples by decreasing number of peaks")
+```
+
+Overall, samples with scores of 2 or more tend to to have 70-95% of their bases shared with other samples. There are instead a group of samples, predominantly with score of 0 that share very little of their peaks with other samples, suggesting that those peaks are folse positives.
+
+
+## Transcritpion-start site enrichment
+
+Another measure of the quality of an ATAC-seq library is the degree of enrichment of reads around the transcription start sites (TSSs) of genes. To check this, we use the RNA-seq data to retain the genes expressed at moderate to high levels (8,749 genes) and extract the coordinate of their most 5' TSS.
+
+```{r tss}
+## BAM files are first converted to BEDPE format
+## BEDPE files are shifted to account for the 9bp signature of the transposase
+# perl shiftAlns_fromBEDPE.pl -dir BWA/
+## BEDPE files are converted back to BAM, sorted and indexed
+
+## For consistency, to get the coordinates of the TSSs we will use ensembl v93 annotation (same as RNAseq).
+## We downloaded all TSS coordinates from biomart and used a perl script to retain the earliest TSS for each gene
+# in /Users/ibarra01/OneDrive/OneDrive - Cancer Research UK, Cambridge Institute/SOMITES/ATACseq/TSSenrichment: perl getEarliestTSS.pl -file TSScoordinates_ensembl93.tab > TSScoordinates_ensembl93_earliest.tab
+genes <- read.table(paste0(dir, "data/ATAC-seq/TSScoordinates_ensembl93_earliest.tab"), sep="\t", row.names = 1, stringsAsFactors = FALSE)
+colnames(genes) <- c("gene", "chr", "start", "end", "strand", "TSS")
+
+## to calculate TSS enrichment scores we will restrict to genes that are expressed in the RNAseq data.
+expr <- read.table(paste0(dir, "data/RNA-seq/geneCounts_SOMITES.RAW.tab"))[-c(1:4),]
+sf <- estimateSizeFactorsForMatrix(expr[,-1])
+expr <- t(t(expr[,-1])/sf)
+means <- rowMeans(expr)
+keep <- means > 100
+# summary(keep) # 8749 
+
+genes <- genes[names(means[keep]),]
+genes <- GRanges(seqnames = paste0("chr",genes$chr), IRanges(genes$TSS-1000, genes$TSS+1000), names = row.names(genes), gene=genes$gene)
+genes <- subset(genes, seqnames(genes) %in% paste0("chr",c(1:19,"X")))
+seqlevels(genes) <- seqlevelsInUse(genes)
+```
+
+We then create intervals of 2kb centered at each TSS and count the number of insertions occurring in each base, for each gene, in each sample. An insertion is regarded as the 5' and 3' ends of a paired-end fragment, after shifting the coordinates to account for the 9bp used by Tn5 for the insertion.
+
+```{r countInsertions, eval=FALSE}
+## to speed up the process we do this as batch scripts, splitting samples into 13 groups of 6
+bam.files <- paste0(substr(bam.files, 1, nchar(bam.files)-4), ".shifted.bam")
+views <- BamViews(bamPaths = paste0(dir, bam.files), bamIndicies = paste0(dir, bam.files), bamRanges = genes)
+
+params <- ScanBamParam(what=c("flag"))
+reads <- suppressWarnings(readGAlignments(views, param = params))
+
+countInsertions <- function(gene, reads){
+  overlaps <- reads[subjectHits(findOverlaps(gene, reads))]
+  positions <- table(c(start(overlaps[mcols(overlaps)$flag %in% c(99,161),])-start(gene)+1,end(overlaps[mcols(overlaps)$flag %in% c(147,81),])-start(gene)+1))
+  positions <- positions[names(positions) %in% 1:2001]
+  tmp <- vector(mode="numeric", length = 2001)
+  names(tmp) <- 1:2001
+  tmp[names(positions)] <- positions
+  return(tmp)
+}
+
+tss.enrich <- list()
+for(i in 1:length(reads)){
+  sample <- substr(names(reads), 1, nchar(names(reads))-22)[i]
+  tss.enrich[[sample]] <- t(sapply(1:length(genes), function(x) countInsertions(gene=genes[x], reads=reads[[i]])))
+  rownames(tss.enrich[[sample]]) <- genes$gene
+}
+# saveRDS(tss.enrich, paste0(dir, "results/ATAC-seq/01_TSSenrichmentMatrix.Rds"))
+```
+
+The aggregate profile for all genes gives us a measure of the number of insertions at each basepair, relative to the TSS. We use the first and last 100bp of the 2kb interval as a measurement of the background insertion level, and compute the fold-change of each bp against this. Thus, the flanks should start at 1 and the fold-change should increase if there is an excess of reads as we approach the TSS. 
+
+We do see significant enrichment of the TSS compared to background, with values as high as 12-fold enrichment. However, there is great variability in the degree of enrichment. We define a threshold to remove the tail of low values which, presumably, correspond to low-auqlity samples.
+
+```{r countInsertionsRes}
+## read insertion counts
+bam.files <- paste0(substr(bam.files, 1, nchar(bam.files)-4), ".shifted.bam")
+tss.enrich <- list()
+for(i in 1:13){
+  tss.enrich <- c(tss.enrich, readRDS(paste0(dir, "results/ATAC-seq/TSSenrichmentMatrix_",i,".Rds")))
+}
+stopifnot(identical(names(tss.enrich), meta$sample))
+
+## normalise to background
+tss.enrich.norm <- do.call("cbind", lapply(tss.enrich, function(x) colSums(x)/mean(colSums(x[,c(1:100,1901:2000)]))))
+
+plot(density(tss.enrich.norm[1001,]), main="TSS enrichment", bty="l")
+abline(v=4.5, lty=2)
+```
+
+Below are the enrichment profiles for each sample, ordered by decreasing number of peaks and coloured by nucleosomal profile score.
+
+```{r plotTSSenrichment, fig.width=15, fig.height=32.5}
+par(mfrow=c(13,6), mar=c(2,2,2,2))
+for(sample in meta[order(meta$nPeaks, decreasing = TRUE),]$sample){
+  plot(rollmean(tss.enrich.norm[,sample], k=25), type="l", lwd=5, main=sample, bty="l", xlab="", ylab="", col=colors[meta[meta$sample==sample,]$insSizeDist+1], ylim=c(0,12))
+  abline(h=4.5, lty=2, lwd=2)
+}
+
+meta$TSSscore <- tss.enrich.norm[1001,][match(meta$sample, names(tss.enrich.norm[1001,]))]
+write.table(meta, paste0(dir, "data/ATAc-se/metadata_ATACseq_manualScores.tab"), quote = FALSE, sep="\t", row.names = FALSE)
+```
+
+Again, there is a correlation of good TSS enrichment for samples with high numbers of peaks and good nucleosomal profile, while the bad-quality samples also have very poor TSS enrichment.
+
+## Quality control
+
+Together, these different metrics allow us to identify the good samples that have great signal-to-noise ratio; the bad samples that are basically just background noise and need to be discarded; and the decent samples, that sit in between.
+
+To assign a *pass* on each metric we require:
+
+- Nucleosomal pattern score >= 2.
+
+- Number of peaks > 15,000.
+
+- FRiP > 7.5%.
+
+- TSS score > 4.5.
+
+And with these criteria, 70% of the samples have 3 or 4 passes, an additional 5% have only 2 and 25% definitely need to be discarded.
+
+```{r qc}
+qc <- data.frame(nuclosome = ifelse(meta$insSizeDist>=2, 1, 0), nPeaks = ifelse(meta$nPeaks > 15000, 1, 0), frip = ifelse(meta$readsInPeaks/meta$totalPairedAlns*100 >= 7.5, 1, 0), tss = ifelse(meta$TSSscore > 4.5, 1, 0))
+row.names(qc) <- meta$sample
+# round(table(rowSums(qc))/78*100,2)
+# 0     1     2     3     4 
+# 15.38 11.54 17.95 19.23 32.05
+upset(qc, mainbar.y.label = "number of samples", sets.x.label = "number of samples\nthat pass", text.scale=1.5)
+```
+
+Thus, we retain 52 samples and get rid of the 23 samples that only pass two of the four criteria above. With this remaining set of samples we have generally 2-4 replicates per somite-stage combination, except for stage27 that looses more and SIII of stage35.
+
+```{r QCpass}
+stopifnot(identical(row.names(qc), meta$sample))
+meta$QCpass <- ifelse(rowSums(qc)>2, 1, 0)
+table(meta[meta$QCpass==1,]$stage, meta[meta$QCpass==1,]$somite)
+
+write.table(meta, paste0(dir, "data/ATAC-seq/metadata_ATACseq_QCallMetrics.tab"), quote = FALSE, sep="\t", row.names = FALSE)
+```
+
+Nonetheless, these should be enough samples for a decent analysis.
+
+
+```{r background, eval=FALSE, include=FALSE, echo=FALSE}
+# param <- readParam(discard=blacklist, restrict=paste0("chr", c(1:19, "X")), pe="both", dedup=FALSE, BPPARAM=MulticoreParam(workers=12))
+# background <- windowCounts(paste0(dir,bam.files), bin=TRUE, width=5000, param=param)
+# saveRDS(background, paste0(dir, "../DATAanalysis/backgroundCounts_5kbBins.Rds"))
+background <- readRDS(paste0(dir, "../DATAanalysis/backgroundCounts_5kbBins.Rds"))
+
+b <- assay(background)
+colnames(b) <- substr(bam.files, 1, nchar(bam.files)-22)
+stopifnot(identical(meta$sample, colnames(b)))
+b <- b[,order(meta$nPeaks, decreasing = TRUE)]
+boxplot(b, col=as.factor(meta[order(meta$nPeaks, decreasing = TRUE),]$insSizeDist), las=2, outline=FALSE)
+## overall, similar background counts. Since these are raw, the proportion is different depending on depth
+
+c <- cpm(b)
+boxplot(c, col=as.factor(meta[order(meta$nPeaks, decreasing = TRUE),]$insSizeDist), las=2, outline=FALSE)
+## and if we normalise for depth, then there is increased background for the samples with lower total peaks
+
+before <- apply(b, 2, median)
+after <- apply(c, 2, median)
+plot(before, after, col=as.factor(meta[order(meta$nPeaks, decreasing = TRUE),]$insSizeDist), pch=16,cex=1.5)
+```
+
+
+```{r info}
+sessionInfo()
+```
+
