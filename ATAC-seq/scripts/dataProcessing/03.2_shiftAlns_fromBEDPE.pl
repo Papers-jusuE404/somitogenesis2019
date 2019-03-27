@@ -4,7 +4,7 @@ use Getopt::Long;
 
 my (%options, %peaks);
 my (@files, @data);
-my ($file, $start, $end);
+my ($file, $start, $end, $start0, $end0);
 
 GetOptions (\%options, 'dir=s');
 
@@ -24,13 +24,13 @@ foreach $file (@files){
 	while(<FILE>){
 		@data = split(/\t/, $_);
 		if($data[8] eq "+"){
-			$start = $data[1]+4;
-			$end = $data[5]-5;
-			print OUT "$data[0]\t$start-1\t$start\n$data[3]\t$end-1\t$end\n";
+			$start = $data[1]+4; $start0 = $start-1;
+			$end = $data[5]-5; $end0 = $end-1;
+			print OUT "$data[0]\t$start0\t$start\n$data[3]\t$end0\t$end\n";
 		}else{
-			$end = $data[2]-4;
-			$start = $data[4]+5;
-			print OUT "$data[0]\t$end-1\t$end\n$data[3]\t$start-1\t$start\n";
+			$end = $data[2]-4; $end0 = $end-1;
+			$start = $data[4]+5; $start0 = $start-1;
+			print OUT "$data[0]\t$end0\t$end\n$data[3]\t$start0\t$start\n";
 		}
 	}
 	close(FILE);
