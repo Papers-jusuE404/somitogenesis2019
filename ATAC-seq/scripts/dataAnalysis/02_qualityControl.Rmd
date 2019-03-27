@@ -22,6 +22,7 @@ library(GenomicAlignments)
 library(DESeq2)
 library(zoo)
 library(UpSetR)
+library(ggplot2)
 
 dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
 
@@ -156,9 +157,10 @@ meta$readsInPeaks <- frip
 # write.table(meta, paste0(dir, "data/ATAC-seq/metadata_ATACseq_manualScores.tab"), quote = FALSE, sep="\t", row.names = FALSE)
 
 boxplot(meta$readsInPeaks/meta$totalPairedAlns*100~meta$insSizeDist, col=colors, ylab="FRiP", xlab="nucleosomal pattern score")
+abline(h=3, lty=2)
 ```
 
-Samples with a score of 2 or higher have around 10-25% of reads in peaks.
+Samples with a score of 2 or higher have around 5-25% of reads in peaks. A cutoff of 3% removes the lowest third of the data.
 
 ### Reproducibility of peaks
 
@@ -188,7 +190,7 @@ Overall, samples with scores of 2 or more tend to to have 70-95% of their bases 
 
 ## Transcritpion-start site enrichment
 
-Another measure of the quality of an ATAC-seq library is the degree of enrichment of reads around the transcription start sites (TSSs) of genes. To check this, we use the RNA-seq data to retain the genes expressed at moderate to high levels (8,749 genes) and extract the coordinate of their most 5' TSS.
+Another measure of the quality of an ATAC-seq library is the degree of enrichment of reads around genes' transcription start sites (TSSs). To check this, we use the RNA-seq data to retain the genes expressed at moderate to high levels (8,749 genes) and extract the coordinate of their most 5' TSS.
 
 ```{r tss}
 ## BAM files are first converted to BEDPE format
