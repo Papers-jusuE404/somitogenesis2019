@@ -23,6 +23,7 @@ library(DESeq2)
 library(zoo)
 library(UpSetR)
 library(ggplot2)
+library(biomaRt)
 
 dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
 
@@ -190,64 +191,56 @@ Overall, samples with scores of 2 or more tend to to have 70-95% of their bases 
 
 ## Transcritpion-start site enrichment
 
-Another measure of the quality of an ATAC-seq library is the degree of enrichment of reads around genes' transcription start sites (TSSs). To check this, we use the RNA-seq data to retain the genes expressed at moderate to high levels (8,749 genes) and extract the coordinate of their most 5' TSS.
+Another measure of the quality of an ATAC-seq library is the degree of enrichment of reads around genes' transcription start sites (TSSs). To check this, we use the RNA-seq data to retain the genes expressed at moderate to high levels (8,684 genes) and extract the coordinate of their most 5' TSS. We then write a BED file with the 2kb interval centred at the TSS.
 
 ```{r tss}
-## BAM files are first converted to BEDPE format
-## BEDPE files are shifted to account for the 9bp signature of the transposase
-# perl shiftAlns_fromBEDPE.pl -dir BWA/
-## BEDPE files are converted back to BAM, sorted and indexed
+## retrieve TSS coordinates for all genes
+## we used Ensembl annotation version 93 for the RNA-seq analysis. Use the same for consistentcy.
+ensembl <- useMart(host = 'http://jul2018.archive.ensembl.org', 
+                   biomart = 'ENSEMBL_MART_ENSEMBL', dataset = 'mmusculus_gene_ensembl')
 
-## For consistency, to get the coordinates of the TSSs we will use ensembl v93 annotation (same as RNAseq).
-## We downloaded all TSS coordinates from biomart and used a perl script to retain the earliest TSS for each gene
-# in /Users/ibarra01/OneDrive/OneDrive - Cancer Research UK, Cambridge Institute/SOMITES/ATACseq/TSSenrichment: perl getEarliestTSS.pl -file TSScoordinates_ensembl93.tab > TSScoordinates_ensembl93_earliest.tab
-genes <- read.table(paste0(dir, "data/ATAC-seq/TSScoordinates_ensembl93_earliest.tab"), sep="\t", row.names = 1, stringsAsFactors = FALSE)
-colnames(genes) <- c("gene", "chr", "start", "end", "strand", "TSS")
+tss <- getBM(attributes=c('ensembl_gene_id', 'external_gene_name', 'chromosome_name', 'transcription_start_site'), mart = ensembl)
 
-## to calculate TSS enrichment scores we will restrict to genes that are expressed in the RNAseq data.
-expr <- read.table(paste0(dir, "data/RNA-seq/geneCounts_SOMITES.RAW.tab"))[-c(1:4),]
+## retain only expressed genes
+expr <- read.table(paste0(dir, "RNA-seq/data/geneCounts_SOMITES.RAW.tsv"))[-c(1:4),]
+expr <- expr[,-grep("PSM", colnames(expr))] ## we remove the PSM samples to use only the somites transcriptomes
+# normalise
 sf <- estimateSizeFactorsForMatrix(expr[,-1])
 expr <- t(t(expr[,-1])/sf)
 means <- rowMeans(expr)
-keep <- means > 100
-# summary(keep) # 8749 
+keep <- means > 100 # use only moderatly to highly expressed genes
+# summary(keep) # 8684  
+genes <- names(means[keep])
 
-genes <- genes[names(means[keep]),]
-genes <- GRanges(seqnames = paste0("chr",genes$chr), IRanges(genes$TSS-1000, genes$TSS+1000), names = row.names(genes), gene=genes$gene)
-genes <- subset(genes, seqnames(genes) %in% paste0("chr",c(1:19,"X")))
-seqlevels(genes) <- seqlevelsInUse(genes)
+## keep the earliest TSS for each expressed gene
+tss <- tss[tss$ensembl_gene_id %in% genes,]
+tmp <- tss[tss$ensembl_gene_id %in% unique(tss[duplicated(tss$ensembl_gene_id),1]),]
+tss <- tss[!(tss$ensembl_gene_id %in% unique(tss[duplicated(tss$ensembl_gene_id),1])),]
+
+min <- sapply(unique(tmp$ensembl_gene_id), function(x) min(tmp[tmp$ensembl_gene_id==x,4]))
+tmp <- unique(tmp[,1:3])
+tmp$transcription_start_site <- min[tmp$ensembl_gene_id]
+
+tss <- rbind(tss, tmp)
+row.names(tss) <- tss$ensembl_gene_id; tss$ensembl_gene_id <- NULL
+
+## export as BED file (start is 0-based in BED files)
+tmp <- data.frame(chr=factor(paste0("chr",tss$chromosome_name), levels=paste0("chr", c(1:19,'X'))), start=tss$transcription_start_site-1000, end=tss$transcription_start_site+1000, gene=tss$external_gene_name, id=row.names(tss))  # providing levels for chromosome allows us to sort in the right order; non-canonical chromosomes become NA
+tmp <- tmp[!is.na(tmp$chr),]
+tmp <- tmp[order(tmp$chr, tmp$start),]
+
+write.table(tmp, file = paste0(dir, "ATAC-seq/data/TSScoords_expressedGenes_flanking1kb.bed"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
 ```
 
-We then create intervals of 2kb centered at each TSS and count the number of insertions occurring in each base, for each gene, in each sample. An insertion is regarded as the 5' and 3' ends of a paired-end fragment, after shifting the coordinates to account for the 9bp used by Tn5 for the insertion.
+Using `betools` we can then count the number of Tn5 insertions at each basepair in these 2kb windows (see `ATAC-seq/scripts/dataProcessing/03.0_shiftingReads.md` for details). An insertion is regarded as the 5' and 3' ends of a paired-end fragment, after shifting the coordinates to account for the 9bp used by Tn5 for the insertion.
 
-```{r countInsertions, eval=FALSE}
-## to speed up the process we do this as batch scripts, splitting samples into 13 groups of 6
-bam.files <- paste0(substr(bam.files, 1, nchar(bam.files)-4), ".shifted.bam")
-views <- BamViews(bamPaths = paste0(dir, bam.files), bamIndicies = paste0(dir, bam.files), bamRanges = genes)
+The aggregate profile for all genes gives us a measure of the number of insertions at each basepair, relative to the TSS. We use the first and last 100bp of the 2kb interval as a measurement of the background insertion level, and compute the fold-change of each bp against this. Thus, the flanks should start at 1 and the fold-change should increase if there is an excess of insertions as we approach the TSS.
 
-params <- ScanBamParam(what=c("flag"))
-reads <- suppressWarnings(readGAlignments(views, param = params))
+--------------
+--------------
+--------------
+--------------
 
-countInsertions <- function(gene, reads){
-  overlaps <- reads[subjectHits(findOverlaps(gene, reads))]
-  positions <- table(c(start(overlaps[mcols(overlaps)$flag %in% c(99,161),])-start(gene)+1,end(overlaps[mcols(overlaps)$flag %in% c(147,81),])-start(gene)+1))
-  positions <- positions[names(positions) %in% 1:2001]
-  tmp <- vector(mode="numeric", length = 2001)
-  names(tmp) <- 1:2001
-  tmp[names(positions)] <- positions
-  return(tmp)
-}
-
-tss.enrich <- list()
-for(i in 1:length(reads)){
-  sample <- substr(names(reads), 1, nchar(names(reads))-22)[i]
-  tss.enrich[[sample]] <- t(sapply(1:length(genes), function(x) countInsertions(gene=genes[x], reads=reads[[i]])))
-  rownames(tss.enrich[[sample]]) <- genes$gene
-}
-# saveRDS(tss.enrich, paste0(dir, "results/ATAC-seq/01_TSSenrichmentMatrix.Rds"))
-```
-
-The aggregate profile for all genes gives us a measure of the number of insertions at each basepair, relative to the TSS. We use the first and last 100bp of the 2kb interval as a measurement of the background insertion level, and compute the fold-change of each bp against this. Thus, the flanks should start at 1 and the fold-change should increase if there is an excess of reads as we approach the TSS. 
 
 We do see significant enrichment of the TSS compared to background, with values as high as 12-fold enrichment. However, there is great variability in the degree of enrichment. We define a threshold to remove the tail of low values which, presumably, correspond to low-auqlity samples.
 
