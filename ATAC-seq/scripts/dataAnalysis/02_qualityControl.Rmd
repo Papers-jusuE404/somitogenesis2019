@@ -134,28 +134,25 @@ colnames(tmp) <- 0:4
 tmp
 ```
 
+A cutoff of 15 thousand peaks removes the loest third of the data.
+
+----
+
 The *fraction of reads in peaks* is a good measurement of the signal-to-noise ratio. This will of course be correlated to the total number of peaks called and therefore to the quality of the nucleosomal pattern.
 
+We use `bedtools` to count the number of fragments mapped across called peaks.
+
 ```{r frip}
-## read in the BAM files and count the number of reads aligning to each called peak.
-libSize <- rep(0, nrow(meta))
-names(libSize) <- meta$sample
+## write the blacklist as a BED file to use with bedtools
+write.table(as.data.frame(blacklist)[,1:3], file=paste0(dir, "ATAC-seq/data/mm10-blacklist.bed"), quote = FALSE, sep="\t", col.names = FALSE, row.names = FALSE)
 
 frip <- rep(0, nrow(meta))
 names(frip) <- meta$sample
-
 for(sample in meta$sample){
-  file <- BamFile(file=paste0(dir, "ATAC-seq/data/BWA/", sample, ".noDUPs.GQ.bam"), index = paste0(dir, "ATAC-seq/data/BWA/", sample, ".noDUPs.GQ.bam"), asMates=TRUE, yieldSize=50000)
-  open(file)
-  while (length(chunk <- readGAlignmentPairs(file))) {
-    libSize[sample] <- libSize[sample] + length(chunk)
-    frip[sample] <- frip[sample] + length(subsetByOverlaps(chunk, peaks[[sample]]))
-  }
-  close(file)
+  frip[sample] <- sum(read.table(paste0(dir, "ATAC-seq/peaks/individualReps/", sample, "_peaks.FRiP.bed"))[,10])/2
 }
-meta$totalPairedAlns <- libSize  # this is slightly lower than 'GQpairs' because excludes blacklisted and ignored regions
+
 meta$readsInPeaks <- frip
-# write.table(meta, paste0(dir, "data/ATAC-seq/metadata_ATACseq_manualScores.tab"), quote = FALSE, sep="\t", row.names = FALSE)
 
 boxplot(meta$readsInPeaks/meta$totalPairedAlns*100~meta$insSizeDist, col=colors, ylab="FRiP", xlab="nucleosomal pattern score")
 abline(h=3, lty=2)
@@ -225,7 +222,7 @@ tss <- rbind(tss, tmp)
 row.names(tss) <- tss$ensembl_gene_id; tss$ensembl_gene_id <- NULL
 
 ## export as BED file (start is 0-based in BED files)
-tmp <- data.frame(chr=factor(paste0("chr",tss$chromosome_name), levels=paste0("chr", c(1:19,'X'))), start=tss$transcription_start_site-1000, end=tss$transcription_start_site+1000, gene=tss$external_gene_name, id=row.names(tss))  # providing levels for chromosome allows us to sort in the right order; non-canonical chromosomes become NA
+tmp <- data.frame(chr=factor(paste0("chr",tss$chromosome_name), levels=paste0("chr", c(1:19,'X'))), start=tss$transcription_start_site-1001, end=tss$transcription_start_site+1000, gene=tss$external_gene_name, id=row.names(tss))  # providing levels for chromosome allows us to sort in the right order; non-canonical chromosomes become NA
 tmp <- tmp[!is.na(tmp$chr),]
 tmp <- tmp[order(tmp$chr, tmp$start),]
 
@@ -236,29 +233,24 @@ Using `betools` we can then count the number of Tn5 insertions at each basepair 
 
 The aggregate profile for all genes gives us a measure of the number of insertions at each basepair, relative to the TSS. We use the first and last 100bp of the 2kb interval as a measurement of the background insertion level, and compute the fold-change of each bp against this. Thus, the flanks should start at 1 and the fold-change should increase if there is an excess of insertions as we approach the TSS.
 
---------------
---------------
---------------
---------------
-
-
-We do see significant enrichment of the TSS compared to background, with values as high as 12-fold enrichment. However, there is great variability in the degree of enrichment. We define a threshold to remove the tail of low values which, presumably, correspond to low-auqlity samples.
+We indeed see this, with values as high as 12-fold enrichment at the TSS for some samples.
 
 ```{r countInsertionsRes}
 ## read insertion counts
-bam.files <- paste0(substr(bam.files, 1, nchar(bam.files)-4), ".shifted.bam")
-tss.enrich <- list()
-for(i in 1:13){
-  tss.enrich <- c(tss.enrich, readRDS(paste0(dir, "results/ATAC-seq/TSSenrichmentMatrix_",i,".Rds")))
+sample <- meta$sample[1]
+tss <- list()
+for(sample in meta$sample){
+  tss[[sample]] <- matrix(read.table(paste0(dir, "ATAC-seq/TSS/", sample, ".TSScount.bed"), stringsAsFactors = FALSE)[,7], ncol = 2001, byrow = TRUE)
 }
-stopifnot(identical(names(tss.enrich), meta$sample))
 
 ## normalise to background
-tss.enrich.norm <- do.call("cbind", lapply(tss.enrich, function(x) colSums(x)/mean(colSums(x[,c(1:100,1901:2000)]))))
+tss.norm <- t(do.call("cbind", lapply(tss, function(x) colMeans(x)/mean(colMeans(x[,c(1:100,1901:2001)])))))
 
-plot(density(tss.enrich.norm[1001,]), main="TSS enrichment", bty="l")
-abline(v=4.5, lty=2)
+plot(density(tss.norm[,1001]), main="TSS enrichment across samples", bty="l")
+abline(v=4, lty=2)
 ```
+
+Again, there is great variability in the degree of enrichment. We define a threshold to remove the tail of samples with low values; a cutoff of 4 discards the lowest third of the data.
 
 Below are the enrichment profiles for each sample, ordered by decreasing number of peaks and coloured by nucleosomal profile score.
 
@@ -270,7 +262,9 @@ for(sample in meta[order(meta$nPeaks, decreasing = TRUE),]$sample){
 }
 
 meta$TSSscore <- tss.enrich.norm[1001,][match(meta$sample, names(tss.enrich.norm[1001,]))]
-write.table(meta, paste0(dir, "data/ATAc-se/metadata_ATACseq_manualScores.tab"), quote = FALSE, sep="\t", row.names = FALSE)
+
+## save the metadata that has new columns
+write.table(meta, paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
 ```
 
 Again, there is a correlation of good TSS enrichment for samples with high numbers of peaks and good nucleosomal profile, while the bad-quality samples also have very poor TSS enrichment.
@@ -285,7 +279,7 @@ To assign a *pass* on each metric we require:
 
 - Number of peaks > 15,000.
 
-- FRiP > 7.5%.
+- FRiP > 3%.
 
 - TSS score > 4.5.
 
