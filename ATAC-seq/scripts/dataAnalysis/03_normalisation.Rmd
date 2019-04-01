@@ -17,12 +17,10 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(csaw)
 library(edgeR)
-# library(GenomicRanges)
-# library(RColorBrewer)
-# library(ggplot2)
-# library(rtracklayer)
-# library(Sushi)
-# library(gplots)
+library(GenomicRanges)
+library(RColorBrewer)
+library(ggplot2)
+library(sva)
 
 dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
 
@@ -80,34 +78,35 @@ bam.files <- paste0(meta$sample, ".noDUPs.GQ.bam")
 We have called peaks using as input all samples merged together.
 
 ```{r peaks}
-peakSet <- readRDS(paste0(dir, "ATAC-seq/peaks/allGQsamples_peaks.bradPeak"))
-peakSet <- GRanges(peakSet$chr, IRanges(peakSet$start, peakSet$end), fc=peakSet$fc, fdr=peakSet$fdr)
+peakSet <- read.table(paste0(dir, "ATAC-seq/peaks/allGQsamples_peaks.broadPeak"))
+peakSet <- GRanges(peakSet$V1, IRanges(peakSet$V2, peakSet$V3), fc=peakSet$V7, fdr=peakSet$V9)
 
 # remove peaks in blacklisted regions
 blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.rds"))
 remove <- unique(queryHits(findOverlaps(peakSet, blacklist)))
 peakSet <- peakSet[-remove]
 
-seqlevels(peakSet)
 # save fo future use
-# saveRDS(peakSet, paste0(dir, "ATAC-seq/results/03_peakSet.Rds"))
+saveRDS(peakSet, paste0(dir, "ATAC-seq/results/03_peakSet_full.Rds"))
 ```
 
 This resulted in `r length(peakSet)` called peaks.
 
 Since we provided the data from 50 samples, the depth is increadibly high. This will increase power massively, to detect regions of very low enrichment on a per-sample basis. Since we won't be able to do anything with these *very low enrichment peaks* we should remove them before proceeding.
 
-To do this, we count the number of sequencing fragments mapped to each peak in each sample. The mean abundance of the peaks across all samples spans three orders of magnitude. 
+To do this, we count the number of sequencing fragments mapped to each peak in each sample. The mean abundance of the peaks across all samples, after correcting for library size, spans three orders of magnitude. We remove a little over a fifth of the peaks with the lowest average counts.
 
 ```{r peakCounts}
 param <- readParam(discard=blacklist, restrict=paste0("chr", c(1:19, "X")), pe="both", dedup=FALSE, BPPARAM=MulticoreParam(workers=24))
 peakCounts <- regionCounts(paste0(dir, "ATAC-seq/data/BWA/", bam.files), peakSet, param = param)
+saveRDS(peakCounts, paste0(dir, "ATAC-seq/results/03_peakCounts_all.Rds"))
 
-dim(assay(peakCounts))
-plot(density(log10(rowMeans(assay(peakCounts)))))
+plot(density(aveLogCPM(asDGEList(peakCounts))), main="mean log CPM counts per peak across samples", bty="l") ## this are mean abundance corrected for library size
+abline(v=-1, lty=2)
+keep <- aveLogCPM(asDGEList(peakCounts)) > -1
+summary(keep)
 
-
-# aveLogCPM(asDGEList(winCounts[keep.overlap,])) ## this are mean abundance corrected for library size
+peakSet <- peakSet[keep,]
 ```
 
 
@@ -115,7 +114,7 @@ plot(density(log10(rowMeans(assay(peakCounts)))))
 
 ### Normalisation
 
-The first thing we need to do is to normalise the data to remove technical biases and have comparable samples across out conditions of interest. For this, we will use methods implemented in the `csaw` package. 
+The first thing we need to do is to normalise the data to remove technical biases and have comparable samples across our conditions of interest. For this, we will use methods implemented in the `csaw` package. 
 
 Besides sequencing depth differences, technical biases include composition and efficiency biases. Composition biases arise when there are significant differences in the number or nature of regions being profiled in different samples; in our case, these biases could arise if certain stages have a significantly different set of peaks compared to others. Efficiency biases instead relate to the efficiency of the reactions producing the data, i.e. the tagmentation of the samples. 
 
@@ -126,15 +125,15 @@ Composition biases manifest as systematic differences in the fragment counts acr
 Thus, to assess if there are any composition biases in our data, we count the number of sequencing fragments mapped across 10kb bins tiling the whole genome. These bins should be large enough to provide stable counts and detect any systematic biases. We assume the majority of the genome is not differentially accessible between samples, and thus should have equivalent counts (after accounting for library size).
 
 ```{r backgroundCounts}
-background <- windowCounts(paste0(dir, "ATAC-seq/data/BWA", bam.files), bin=TRUE, width=10000, param=param)
-saveRDS(background10, paste0(dir, "ATAC-seq/results/03_backgroundCounts_10kbBins.Rds"))
+background <- windowCounts(paste0(dir, "ATAC-seq/data/BWA/", bam.files), bin=TRUE, width=10000, param=param)
+saveRDS(background, paste0(dir, "ATAC-seq/results/03_backgroundCounts_10kbBins.Rds"))
 ```
 
 `csaw` uses `edgeR` TMM method to calculate size factors based on the bin counts. We observe that most size factors are close to 1, which suggests that we do not have significant composition biases in the data.
 
 ```{r composition}
-sf.comp <- normOffsets(background10, se.out=FALSE)
-plot(density(sf.comp))
+sf.comp <- normOffsets(background, se.out=FALSE)
+summary(sf.comp)
 ```
 
 #### Efficiency biases
@@ -143,61 +142,58 @@ Next, we check for efficiency biases instead. Given that we have seen large vari
 
 To compute efficiency biases we instead focus on the counts of our regions of enrichment (peaks). Again, if the reaction is much more efficient in one sample, it will generate higher enrichment of reads in peaks compared to background, and it will manifest as a systematic increase in the counts.
 
-To test for differential accessibility we will use sliding windows across the genome, to be able to capture shape changes, as well as overall peak abundance changes. Thus, we start by computing the fragment counts on 150bp windows sliding 50bp, across the whole genome. Then, we retain only the windows that overlap peaks, which represents x% of the windows.
+To test for differential accessibility we will use sliding windows across the genome, to be able to capture shape changes, as well as overall peak abundance changes. Thus, we start by computing the fragment counts on 150bp windows sliding 50bp, across the whole genome. Then, we retain only the windows that overlap peaks.
 
 ```{r windowCounts}
-winCounts <- windowCounts(paste0(dir, "ATAC-seq/data/BWA/", bam.files), width=150, spacing=50, filter=70, param = param)
+winCounts <- windowCounts(paste0(dir, "ATAC-seq/data/BWA/", bam.files), width=150, spacing=50, filter=75, param = param)
+saveRDS(winCounts, paste0(dir, "ATAC-seq/results/03_windowCounts_150width_50space_75filter.Rds"))
 
-keep.overlap <- overlapsAny(rowRanges(winCounts), peaksMerge)
+keep.overlap <- overlapsAny(rowRanges(winCounts), peakSet)
 summary(keep.overlap)
-```
 
-The mean counts for these windows across samples...
-
-So we can introduce an additional filter to remove the windows that are still too low and are not work testing.
-
-```{r windowCountsAbundance}
-abundances <- aveLogCPM(asDGEList(winCounts[keep.overlap,])) ## this are mean abundance corrected for library size
-plot(density(abundances))
-
+abundances <- aveLogCPM(asDGEList(winCounts)) ## this are mean abundance corrected for library size
+# plot(density(abundances))
 keep.minCount <- abundances > aveLogCPM(4, lib.size = mean(winCounts$totals))
 summary(keep.minCount)
-
 
 table(keep.overlap, keep.minCount)
 
 keep <- keep.overlap & keep.minCount
-summary(keep)
-# plot(density(aveLogCPM(asDGEList(winCounts[keep,]))))
-filtered.data <- winCounts[keep, -remove]
+
+filtered.data <- winCounts[keep,]
 ```
 
-We use this subset of high abundance windows to compute size factors with the TMM method. In this case, the size factors difffer significantly from 1, supporting the presenc of strong efficiency biases that need to be corrected before downstream analyses can proceed.
+We use this subset of windows to compute size factors with the TMM method. In this case, the size factors difffer significantly from 1, supporting the presence of strong efficiency biases that need to be corrected before downstream analyses can proceed.
 
 ```{r efficiency}
 sf.eff <- normOffsets(filtered.data, se.out = FALSE)
+summary(sf.eff)
 
-plot(density(sf.eff))
+plot(density(sf.comp), xlim=c(0.3,2.5), lty=2, lwd=2, bty="l", main="size factors for technical biases")
+lines(density(sf.eff), lwd=2)
+abline(v=1, lty=3, col="grey")
+legend("topright", legend = c("composition", "efficiency"), lty=c(2,1), lwd=2)
 ```
 
 #### Assessing technical biases
 
-One way of assesing the technical biases captured by the size factors computed above is via MA plots, which plot the average abundance across samples of each region in the `x-axis` versus the fold-change between a pair of samples in the `y-axis`. We do this with the 10kb bin counts to have large enough counts to be able to observe systematic biases, normalised for library size.
+One way of assesing the technical biases captured by the size factors computed above is via MA plots, which plot the average abundance across samples (A) of each region in the `x-axis` versus the log fold-change between a pair of samples (M) in the `y-axis`. We do this with the 10kb bin counts to have large enough counts to be able to observe systematic biases, normalised for library size.
 
-The majority of the bins, observed as the dark blue concentration of data points, represent background noise and these have low mean abundance levels; shifts in their fold-change evidence composition biases and thus the composition size factors pass through the centre of this cloud (solid line). 
+The majority of the bins, observed as the dark blue concentration of data points, represent background noise and these have low mean abundance levels; shifts in their fold-change evidence composition biases and thus the composition size factors pass through the centre of this cloud (dashed line). Most of the time, the dashed line overlaps the red line at M=0, indicating no bias.
 
-There are much fewer bins with much higher mean abundance that represent true enrichment sites (peaks). In this case, deviation of the fold-changes evidence efficincy biases, and the corresponding size factors (dotted line) intersect this much smaller portion of the data cloud.
+There are much fewer bins with much higher mean abundance that represent true enrichment sites (peaks). In this case, deviation of the fold-changes evidence efficiency biases, and the corresponding size factors (solid line) intersect this much smaller portion of the data cloud.
 
 ```{r MAplots, fig.width=10, fig.height=3}
+adj.counts <- cpm(asDGEList(background), log=TRUE)
+
 par(mfrow=c(1, 4), mar=c(5, 4, 2, 1.5))
-adj.counts <- cpm(asDGEList(background10), log=TRUE)
 for (i in seq_len(nrow(meta)-1)) {
   cur.x <- adj.counts[,1]
   cur.y <- adj.counts[,1+i]
   smoothScatter(x=(cur.x+cur.y)/2, y=cur.x-cur.y,
   xlab="A", ylab="M", main=paste("1 vs", i+1))
   abline(h=0, col="red", lwd=2)
-  abline(h=c(log2(sf.comp[1]/sf.comp[i+1]), log2(sf.eff[1]/sf.eff[i+1])), lty=c(1,2))
+  abline(h=c(log2(sf.comp[1]/sf.comp[i+1]), log2(sf.eff[1]/sf.eff[i+1])), lty=c(2,1))
 }
 ```
 
@@ -206,10 +202,12 @@ Importantly, in many cases we observe that the fold-change of high abundance bin
 Instead, it is more appropriate to use a *trended normalisation* stragey, where a different scaling factor is computed for each window, depending on its mean abundance. This is achieved using a *loess*-based estimation of the trend. 
 
 ```{r trended}
+## each offset represents the log-transformed scaling factor that needs to be applied to the corresponding entry of the count matrix for its normalization
 filtered.data <- normOffsets(filtered.data, type="loess", se.out=TRUE)
 sf.trended <- assay(filtered.data, "offset")
-saveRDS(sf.trended, paste0(dir, "DATAanalysis/trendedNorm_sizeFactors.Rds"))
-## each offset represents the log-transformed scaling factor that needs to be applied to the corresponding entry of the count matrix for its normalization
+
+## save for future use
+saveRDS(sf.trended, paste0(dir, "ATAC-seq/results/03_trendedNorm_sizeFactors.Rds"))
 ```
 
 And we can check that the normalisation works by computing MA plots with the corrected data. Now the data is centred around M=0 and no trended effects are present. 
@@ -232,36 +230,138 @@ for(i in 2:ncol(adjc)){
 
 #### Assessing successful normalisation
 
-If normalisation has indeed removed technical biases, these should not account for a significant amount of the data's variability, and certainly not more than the vairation expected from our varaibles of interest. To check this we use PCA and the correlation of the first few PCs with library size, FRiP, date of sample collection and biological variables.
+If normalisation has indeed removed technical biases, these should not account for a significant amount of the data's variability, and certainly not more than the vairation expected from our variables of interest. To check this we use multidimensional scaling (MDS) to compute the distances between samples, based on the 5,000 most variable windows. Ideally, samples would then cluster based on out biological variables of interest. But we can also check whether they are grouping by technical effects.
 
-We use the 5,000 most variable regions as input for the PCA. 
+Below is the MDS plot with points (samples) coloured by their stage or date of collection. We observe a bit of grouping by stage, and a bit of grouping by batch, but nothing particularly clear.
 
-```{r mdsNorm, fig.width=10, fig.height=3}
-# tmp <- re.adjc*filtered.data$totals/1e6
+```{r mdsNorm, fig.width=10, fig.height=4}
 mds.norm <- plotMDS(re.adjc, top=5000, plot=FALSE)
 
 plots <- list()
-df <- data.frame(x=mds.norm$x, y=mds.norm$y, stage=meta$stage, date=meta$date)
+df <- cbind(x=mds.norm$x, y=mds.norm$y, meta)
 
-plots[[1]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=df$date)) + labs(colour="date")
-plots[[2]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=as.character(df$stage))) + labs(colour="stage")
+plots[[1]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
+plots[[2]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=df$date)) + labs(colour="date")
 multiplot(plotlist = plots, cols=2)
-## samples do not cluster by anything obvious
 ```
 
-There is a little bit of grouping by the date of sample processing, suggesting some batch effects; this is more evident for certain stages (like 35), where samples are grouping by date, even if it is not tight clusters. 
+```{r mdsNorm, fig.width=10, fig.height=4}
+vars <- rowVars(re.adjc)
+tmp <- re.adjc[order(vars, decreasing=TRUE)[1:5000],]
+pca <- prcomp(t(tmp))
+df <- cbind(pca$x, meta)
+colnames(df)[1:2] <- c("x", "y")
 
-Despite the data being already normalised, we still see a clear correlation with the fraction of reads in peaks and, to a lesser extent, with library size. So it seems like the normalisation is not removing the effect completely. 
+plots[[1]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
+plots[[2]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=df$date)) + labs(colour="date")
+multiplot(plotlist = plots, cols=2)
+```
 
-```{r corrTech, fig.width=10}
-par(mfrow=c(1,2))
-plot(df$x, log10(meta$totalPairedAlns), pch=16, xlab="leading FC - dim1", ylab=expression('log'[10]*' library size'), bty="l")
-plot(df$x, meta$readsInPeakSet/meta$totalPairedAlns*100, pch=16, xlab="leading FC - dim1", ylab="FRiP", bty="l")
-## the first leading FC correlates with FRiP: -0.7155161
-## and to a lesser degree with library size: 0.3900991
+If we instead colour points by their library size or FRiP, we observe strong correlations to the `x` and `y` axes respectively (Pearson r = 0.52 for library size and -0.77 for FRiP).
+
+```{r mdsNorm2, fig.width=10, fig.height=4}
+plots[[1]] <- ggplot(df, aes(x, y)) + geom_point(aes(colour=df$goodQuality)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="libSize")
+plots[[2]] <- ggplot(df, aes(x, y)) + geom_point(aes(colour=df$readsInPeaks/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
+multiplot(plotlist = plots, cols=2)
+
+# cor(df$x, df$goodQuality) # 0.52
+# cor(df$y, df$readsInPeaks/df$goodQuality*100) # -0.77
+```
+
+Thus, this suggests that normalisation has not removed the technical biases efficiently and samples are still not comparable across conditons.
+
+### Removing unwanted technical variation
+
+In order to remove the remaining technical varaition in the data after the trended normalisation we can use surrogate variable analysis (sva) to infer the systematic effects in the data, that are not due to our conditions of interest.
+
+We use the `svaseq` function from the `sva` package. The input data is the normalised counts, but in regular scale, since the function internally performs it's own log transformation. The algorithm identifies 11 surrogate variables (svs).
+
+```{r}
+## design matrix
+meta$group <- factor(paste(meta$stage, meta$somite, sep="."))
+design <- model.matrix(~0+group, meta)
+colnames(design) <- paste0("stage",levels(meta$group))
+
+fit <- lmFit(re.adjc, design)
+res <- residuals(fit, re.adjc)
+
+pcs <- prcomp(t(res))
+
+
+?parallelPCA
+
+
+designAug <- cbind(design, pcs$x[,1:5]) # or however many top PCs.
+
+# plugging 're.adjc' into scran::parallelPCA()
+
 ```
 
 
+```{r sva, fig.width=10, fig.height=3}
+## normalised data (in regular scale)
+norm.counts <- 2^re.adjc
+
+## design matrix
+meta$group <- factor(paste(meta$stage, meta$somite, sep="."))
+design <- model.matrix(~0+group, meta)
+colnames(design) <- paste0("stage",levels(meta$group))
+
+## SVA
+mod0 = model.matrix(~1, data=meta)
+svobj = svaseq(norm.counts, design, mod0)
+write.table(svobj$sv, paste0(dir, "ATAC-seq/results/03_svs_trendNormData.tab"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
+
+
+tmp <- cbind(svobj$sv, meta)
+tmp$date <- factor(as.character(tmp$date), levels = c("27.04.18", "24.05.18", "20.05.18", "11.06.18", "14.06.18", "05.04.18", "01.06.18", "12.04.18", "06.04.18", "26.04.18"))
+
+par(mfrow=c(1,3))
+for(i in 1:ncol(svobj$sv)){
+  plot(as.numeric(tmp$date), tmp[,i], pch=16, col=tmp$date, axes=FALSE, xlab="", ylab=paste0("SV",i), cex=2, main="batch"); box(bty="l"); axis(1, at=1:10, labels = levels(tmp$date), las=2)
+  plot(as.numeric(tmp$stage), tmp[,i], pch=16, col=tmp$stage, axes=FALSE, xlab="", ylab=paste0("SV",i), cex=2, main="stage"); box(bty="l"); axis(1, at=c(8,18,21,25,27,35), labels = levels(as.factor(tmp$stage)), las=2)
+  plot(as.numeric(as.factor(tmp$somite)), tmp[,i], pch=16, col=as.factor(tmp$somite), axes=FALSE, xlab="", ylab=paste0("SV",i), cex=2, main="somite"); box(bty="l"); axis(1, at=1:3, labels = levels(as.factor(tmp$somite)), las=2)
+}
+```
+
+```{r corrGenesSVs, fig.width=9, fig.height=3, eval=FALSE, echo=FALSE}
+corrWindows <- list()
+# par(mfrow=c(1,3))
+for(i in 1:ncol(svobj$sv)){
+  cors <- sapply(1:nrow(norm.counts), function(x) cor(svobj$sv[,i], norm.counts[x,]))
+  corrWindows[[i]] <- rowRanges(filtered.data)[which(abs(cors)>0.75),]
+  # plot(density(cors), main=paste0("SV",i))
+  mtext(side=3, line=-1, text = paste(length(corrWindows[[i]]), "windows with abs(r)>0.75"), cex=0.75, adj=0)
+}
+# sv1 1320 windows  564 merged regions  no GO enrichment
+# sv2 656 windows   333 merged regions  enrichment for locomotion-related terms
+```
+
+We can regress out these SVs and redo the MDS plot with the corrected data. In this case, 
+
+```{r MDScorrected, fig.width=10, fig.height=4}
+norm.counts.corr <- removeBatchEffect(norm.counts, covariates = svobj$sv)
+
+mds.norm.corr <- plotMDS(norm.counts.corr, top=5000, plot=FALSE)
+
+# vars <- rowVars(norm.counts.corr)
+# tmp <- norm.counts.corr[order(vars, decreasing=TRUE)[1:5000],]
+# pca <- prcomp(t(tmp))
+# df <- pca$x
+# df <- cbind(df, meta)
+
+
+plots <- list()
+df <- cbind(x=mds.norm.corr$x, y=mds.norm.corr$y, meta)
+
+plots[[1]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
+plots[[2]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=df$date)) + labs(colour="date")
+multiplot(plotlist = plots, cols=2)
+
+plots[[1]] <- ggplot(df, aes(x, y)) + geom_point(aes(colour=df$goodQuality)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="libSize")
+plots[[2]] <- ggplot(df, aes(x, y)) + geom_point(aes(colour=df$readsInPeaks/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
+multiplot(plotlist = plots, cols=2)
+```
 
 
 
