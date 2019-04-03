@@ -101,6 +101,8 @@ param <- readParam(discard=blacklist, restrict=paste0("chr", c(1:19, "X")), pe="
 peakCounts <- regionCounts(paste0(dir, "ATAC-seq/data/BWA/", bam.files), peakSet, param = param)
 saveRDS(peakCounts, paste0(dir, "ATAC-seq/results/03_peakCounts_all.Rds"))
 
+meta$readsInPeakSet <- colSums(assay(peakCounts))
+
 plot(density(aveLogCPM(asDGEList(peakCounts))), main="mean log CPM counts per peak across samples", bty="l") ## this are mean abundance corrected for library size
 abline(v=-1, lty=2)
 keep <- aveLogCPM(asDGEList(peakCounts)) > -1
@@ -149,14 +151,14 @@ winCounts <- windowCounts(paste0(dir, "ATAC-seq/data/BWA/", bam.files), width=15
 saveRDS(winCounts, paste0(dir, "ATAC-seq/results/03_windowCounts_150width_50space_75filter.Rds"))
 
 keep.overlap <- overlapsAny(rowRanges(winCounts), peakSet)
-summary(keep.overlap)
+# summary(keep.overlap)
 
 abundances <- aveLogCPM(asDGEList(winCounts)) ## this are mean abundance corrected for library size
 # plot(density(abundances))
 keep.minCount <- abundances > aveLogCPM(4, lib.size = mean(winCounts$totals))
-summary(keep.minCount)
+# summary(keep.minCount)
 
-table(keep.overlap, keep.minCount)
+# table(keep.overlap, keep.minCount)
 
 keep <- keep.overlap & keep.minCount
 
@@ -235,38 +237,36 @@ If normalisation has indeed removed technical biases, these should not account f
 Below is the MDS plot with points (samples) coloured by their stage or date of collection. We observe a bit of grouping by stage, and a bit of grouping by batch, but nothing particularly clear.
 
 ```{r mdsNorm, fig.width=10, fig.height=4}
-mds.norm <- plotMDS(re.adjc, top=5000, plot=FALSE)
-
-plots <- list()
-df <- cbind(x=mds.norm$x, y=mds.norm$y, meta)
-
-plots[[1]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
-plots[[2]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=df$date)) + labs(colour="date")
-multiplot(plotlist = plots, cols=2)
-```
-
-```{r mdsNorm, fig.width=10, fig.height=4}
-vars <- rowVars(re.adjc)
+# mds.norm <- plotMDS(re.adjc, top=5000, plot=FALSE)
+vars <- rowVars(as.matrix(re.adjc))
 tmp <- re.adjc[order(vars, decreasing=TRUE)[1:5000],]
 pca <- prcomp(t(tmp))
 df <- cbind(pca$x, meta)
-colnames(df)[1:2] <- c("x", "y")
 
-plots[[1]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
-plots[[2]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=df$date)) + labs(colour="date")
+plots <- list()
+# df <- cbind(x=mds.norm$x, y=mds.norm$y, meta)
+
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$date)) + labs(colour="date")
 multiplot(plotlist = plots, cols=2)
 ```
+
 
 If we instead colour points by their library size or FRiP, we observe strong correlations to the `x` and `y` axes respectively (Pearson r = 0.52 for library size and -0.77 for FRiP).
 
 ```{r mdsNorm2, fig.width=10, fig.height=4}
-plots[[1]] <- ggplot(df, aes(x, y)) + geom_point(aes(colour=df$goodQuality)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="libSize")
-plots[[2]] <- ggplot(df, aes(x, y)) + geom_point(aes(colour=df$readsInPeaks/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$goodQuality)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="libSize")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSet/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
 multiplot(plotlist = plots, cols=2)
 
 # cor(df$x, df$goodQuality) # 0.52
 # cor(df$y, df$readsInPeaks/df$goodQuality*100) # -0.77
 ```
+
+```{r}
+plot(df$PC1, df$readsInPeakSet/df$goodQuality*100)
+```
+
 
 Thus, this suggests that normalisation has not removed the technical biases efficiently and samples are still not comparable across conditons.
 
@@ -276,31 +276,10 @@ In order to remove the remaining technical varaition in the data after the trend
 
 We use the `svaseq` function from the `sva` package. The input data is the normalised counts, but in regular scale, since the function internally performs it's own log transformation. The algorithm identifies 11 surrogate variables (svs).
 
-```{r}
-## design matrix
-meta$group <- factor(paste(meta$stage, meta$somite, sep="."))
-design <- model.matrix(~0+group, meta)
-colnames(design) <- paste0("stage",levels(meta$group))
-
-fit <- lmFit(re.adjc, design)
-res <- residuals(fit, re.adjc)
-
-pcs <- prcomp(t(res))
-
-
-?parallelPCA
-
-
-designAug <- cbind(design, pcs$x[,1:5]) # or however many top PCs.
-
-# plugging 're.adjc' into scran::parallelPCA()
-
-```
-
 
 ```{r sva, fig.width=10, fig.height=3}
 ## normalised data (in regular scale)
-norm.counts <- 2^re.adjc
+# norm.counts <- 2^re.adjc
 
 ## design matrix
 meta$group <- factor(paste(meta$stage, meta$somite, sep="."))
@@ -308,20 +287,11 @@ design <- model.matrix(~0+group, meta)
 colnames(design) <- paste0("stage",levels(meta$group))
 
 ## SVA
+n.sv = num.sv(re.adjc, design, method="leek", seed=174)
 mod0 = model.matrix(~1, data=meta)
-svobj = svaseq(norm.counts, design, mod0)
-write.table(svobj$sv, paste0(dir, "ATAC-seq/results/03_svs_trendNormData.tab"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
-
-
-tmp <- cbind(svobj$sv, meta)
-tmp$date <- factor(as.character(tmp$date), levels = c("27.04.18", "24.05.18", "20.05.18", "11.06.18", "14.06.18", "05.04.18", "01.06.18", "12.04.18", "06.04.18", "26.04.18"))
-
-par(mfrow=c(1,3))
-for(i in 1:ncol(svobj$sv)){
-  plot(as.numeric(tmp$date), tmp[,i], pch=16, col=tmp$date, axes=FALSE, xlab="", ylab=paste0("SV",i), cex=2, main="batch"); box(bty="l"); axis(1, at=1:10, labels = levels(tmp$date), las=2)
-  plot(as.numeric(tmp$stage), tmp[,i], pch=16, col=tmp$stage, axes=FALSE, xlab="", ylab=paste0("SV",i), cex=2, main="stage"); box(bty="l"); axis(1, at=c(8,18,21,25,27,35), labels = levels(as.factor(tmp$stage)), las=2)
-  plot(as.numeric(as.factor(tmp$somite)), tmp[,i], pch=16, col=as.factor(tmp$somite), axes=FALSE, xlab="", ylab=paste0("SV",i), cex=2, main="somite"); box(bty="l"); axis(1, at=1:3, labels = levels(as.factor(tmp$somite)), las=2)
-}
+svobj = sva(re.adjc, design, mod0, n.sv = n.sv)
+# svobj = svaseq(norm.counts, design, mod0)
+# write.table(svobj$sv, paste0(dir, "ATAC-seq/results/03_svs_trendNormData.tab"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
 ```
 
 ```{r corrGenesSVs, fig.width=9, fig.height=3, eval=FALSE, echo=FALSE}
@@ -340,28 +310,96 @@ for(i in 1:ncol(svobj$sv)){
 We can regress out these SVs and redo the MDS plot with the corrected data. In this case, 
 
 ```{r MDScorrected, fig.width=10, fig.height=4}
-norm.counts.corr <- removeBatchEffect(norm.counts, covariates = svobj$sv)
+norm.counts.corr <- removeBatchEffect(re.adjc, covariates = svobj$sv)
 
-mds.norm.corr <- plotMDS(norm.counts.corr, top=5000, plot=FALSE)
-
-# vars <- rowVars(norm.counts.corr)
-# tmp <- norm.counts.corr[order(vars, decreasing=TRUE)[1:5000],]
-# pca <- prcomp(t(tmp))
-# df <- pca$x
-# df <- cbind(df, meta)
-
+# mds.norm.corr <- plotMDS(norm.counts.corr, top=5000, plot=FALSE)
+vars <- rowVars(norm.counts.corr)
+tmp <- norm.counts.corr[order(vars, decreasing=TRUE)[1:5000],]
+pca <- prcomp(t(tmp))
+df <- cbind(pca$x, meta)
 
 plots <- list()
-df <- cbind(x=mds.norm.corr$x, y=mds.norm.corr$y, meta)
+# df <- cbind(x=mds.norm.corr$x, y=mds.norm.corr$y, meta)
 
-plots[[1]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
-plots[[2]] <- ggplot(df, aes(x,y)) + geom_point(aes(colour=df$date)) + labs(colour="date")
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$date)) + labs(colour="date")
 multiplot(plotlist = plots, cols=2)
 
-plots[[1]] <- ggplot(df, aes(x, y)) + geom_point(aes(colour=df$goodQuality)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="libSize")
-plots[[2]] <- ggplot(df, aes(x, y)) + geom_point(aes(colour=df$readsInPeaks/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$goodQuality)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="libSize")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSet/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
 multiplot(plotlist = plots, cols=2)
 ```
+
+```{r sva, fig.width=10, fig.height=3}
+## normalised data (in regular scale)
+norm.counts <- 2^re.adjc
+
+## SVAseq
+svobj.seq = svaseq(norm.counts, design, mod0, n.sv = n.sv)
+```
+
+
+```{r MDScorrected, fig.width=10, fig.height=4}
+norm.counts.corr.seq <- removeBatchEffect(re.adjc, covariates = svobj.seq$sv)
+
+# mds.norm.corr <- plotMDS(norm.counts.corr, top=5000, plot=FALSE)
+vars <- rowVars(norm.counts.corr.seq)
+tmp <- norm.counts.corr.seq[order(vars, decreasing=TRUE)[1:5000],]
+pca <- prcomp(t(tmp))
+df <- cbind(pca$x, meta)
+
+plots <- list()
+# df <- cbind(x=mds.norm.corr$x, y=mds.norm.corr$y, meta)
+
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$date)) + labs(colour="date")
+multiplot(plotlist = plots, cols=2)
+
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$goodQuality)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="libSize")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSet/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
+multiplot(plotlist = plots, cols=2)
+```
+
+
+```{r}
+## insead of using SVA, use PCA to identify the variation on the residuals after fitting the design of interest
+fit <- lmFit(re.adjc, design)
+res <- residuals(fit, re.adjc)
+
+pcs <- prcomp(t(res))
+
+plot(pcs$x[,1], pcs$x[,2])
+
+designAug <- cbind(design, pcs$x[,1:5]) # or however many top PCs.
+
+# plugging 're.adjc' into scran::parallelPCA() returns 18
+
+```
+
+
+
+```{r MDScorrected, fig.width=10, fig.height=4}
+norm.counts.corr.pca <- removeBatchEffect(re.adjc, covariates = pcs$x[,1:18])
+
+# mds.norm.corr <- plotMDS(norm.counts.corr, top=5000, plot=FALSE)
+vars <- rowVars(norm.counts.corr.pca)
+tmp <- norm.counts.corr.pca[order(vars, decreasing=TRUE)[1:5000],]
+pca <- prcomp(t(tmp))
+df <- cbind(pca$x, meta)
+
+plots <- list()
+# df <- cbind(x=mds.norm.corr$x, y=mds.norm.corr$y, meta)
+
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$date)) + labs(colour="date")
+multiplot(plotlist = plots, cols=2)
+
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$goodQuality)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="libSize")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSet/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
+multiplot(plotlist = plots, cols=2)
+```
+
+
 
 
 
