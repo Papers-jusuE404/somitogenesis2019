@@ -88,12 +88,12 @@ write.table(probs, paste0(dir, "ATAC-seq/results/05_TFBSs/", args[1], "_probBind
 
 
 # plot footprint
-pdf(paste0(dir, "ATAC-seq/results/05_footprints/", args[1], ".pdf", width=10, height=10))
+pdf(paste0(dir, "ATAC-seq/results/05_footprints/", args[1], ".pdf"), width=10, height=10)
 par(mfrow=c(5,5), mar=c(2,2,2,2))
 for(sample in names(fit)){
-  plot(fit[[sample]]$LambdaParList$ATACseq[1:c(200+motifLength)], ylim=c(0,round(max(fit[[sample]]$LambdaParList$ATACseq[1:c(200+motifLength)]),3)), type="l", lwd=3, col="blue", 
+  plot(fit[[sample]]$LambdaParList$ATACseq[1:c(200+motifLength)], ylim=c(0,round(max(fit[[sample]]$LambdaParList$ATACseq[1:c(200+motifLength)]),3)), type="l", lwd=2, col="blue", 
        main=sample, ylab="Cut-site probability", xlab="distance to motif (bp)", axes=FALSE)
-  lines(fit[[sample]]$LambdaParList$ATACseq[c(200+motifLength+1):c(400+motifLength*2)], lwd=3, col="red")
+  lines(fit[[sample]]$LambdaParList$ATACseq[c(200+motifLength+1):c(400+motifLength*2)], lwd=2, col="red")
   box(bty="l"); axis(2)
   axis(1, at=c(0,50,100,120,170,220), labels=c(-100,-50,0,0,50,100))
   abline(v=c(100,120),lty=2)
