@@ -576,7 +576,7 @@ mcols(stage.average.pca) &lt;- combineTests(merged$id, test$table)
 summary(stage.average.pca$FDR&lt;0.05)</code></pre>
 <pre><code>##    Mode   FALSE    TRUE 
 ## logical  145593   29648</code></pre>
-<pre class="r"><code>saveRDS(filtered.data, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_stages_average_sva.Rds&quot;))</code></pre>
+<pre class="r"><code>saveRDS(stage.average.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_stages_average_sva.Rds&quot;))</code></pre>
 <p>Most of the regions identified on a per-somite basis are also significant when taking their average.</p>
 <pre class="r"><code>stage.average.pca.sig &lt;- stage.average.pca[stage.average.pca$FDR&lt;0.05]
 stage.perSomite.pca.sig &lt;- stage.perSomite.pca[[&quot;somiteI&quot;]][stage.perSomite.pca[[&quot;somiteI&quot;]]$FDR&lt;0.05]
@@ -644,7 +644,7 @@ round(length(unique(queryHits(findOverlaps(stage.perSomite.pca.sig, stage.averag
 ## [41] locfit_1.5-9.1           ensembldb_2.6.8         
 ## [43] AnnotationDbi_1.44.0     lambda.r_1.2.3          
 ## [45] ade4_1.7-13              compiler_3.5.1          
-## [47] rlang_0.3.3              RCurl_1.95-4.12         
+## [47] rlang_0.3.4              RCurl_1.95-4.12         
 ## [49] bitops_1.0-6             rmarkdown_1.12          
 ## [51] multtest_2.38.0          curl_3.3                
 ## [53] DBI_1.0.0                R6_2.4.0                
