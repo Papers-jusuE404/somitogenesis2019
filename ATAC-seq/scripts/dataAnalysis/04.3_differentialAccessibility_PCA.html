@@ -411,7 +411,7 @@ somiteTrios.perStage.pca[['stage25']] &lt;- merged$region
 mcols(somiteTrios.perStage.pca[['stage25']]) &lt;- combineTests(merged$id, stage25$table)
 somiteTrios.perStage.pca[['stage35']] &lt;- merged$region
 mcols(somiteTrios.perStage.pca[['stage35']]) &lt;- combineTests(merged$id, stage35$table)
-saveRDS(somiteTrios.perStage.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_somiteTrios_perStage_sva.Rds&quot;))
+saveRDS(somiteTrios.perStage.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_somiteTrios_perStage_pca.Rds&quot;))
 
 df &lt;- t(data.frame(stage8=sum(mcols(somiteTrios.perStage.pca[['stage8']])$FDR &lt;= 0.05),
            stage18=sum(mcols(somiteTrios.perStage.pca[['stage18']])$FDR &lt;= 0.05), 
@@ -459,7 +459,7 @@ somiteTrios.average.pca[['somiteIIIvsII']] &lt;- merged$region
 mcols(somiteTrios.average.pca[['somiteIIIvsII']]) &lt;- combineTests(merged$id, somiteIIIvsII.all$table)
 somiteTrios.average.pca[['somiteIIIvsII']] &lt;- somiteTrios.average.pca[['somiteIIIvsII']][order(somiteTrios.average.pca[['somiteIIIvsII']]$FDR)]
 
-saveRDS(somiteTrios.average.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_somiteTrios_average_sva.Rds&quot;))
+saveRDS(somiteTrios.average.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_somiteTrios_average_pca.Rds&quot;))
 
 data.frame(somiteIvsII=sum(mcols(somiteTrios.average.pca[['somiteIIvsI']])$FDR &lt;= 0.05),
            somiteIvsIII=sum(mcols(somiteTrios.average.pca[['somiteIIIvsI']])$FDR &lt;= 0.05), 
@@ -534,7 +534,7 @@ stage.perSomite.pca[['somiteII']] &lt;- merged$region
 mcols(stage.perSomite.pca[['somiteII']]) &lt;- combineTests(merged$id, somiteII$table)
 stage.perSomite.pca[['somiteIII']] &lt;- merged$region
 mcols(stage.perSomite.pca[['somiteIII']]) &lt;- combineTests(merged$id, somiteIII$table)
-saveRDS(stage.perSomite.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_stages_perSomite_sva.Rds&quot;))
+saveRDS(stage.perSomite.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_stages_perSomite_pca.Rds&quot;))
 
 df &lt;- t(data.frame(somiteI=sum(mcols(stage.perSomite.pca[['somiteI']])$FDR &lt;= 0.05),
            somiteII=sum(mcols(stage.perSomite.pca[['somiteII']])$FDR &lt;= 0.05), 
@@ -576,7 +576,7 @@ mcols(stage.average.pca) &lt;- combineTests(merged$id, test$table)
 summary(stage.average.pca$FDR&lt;0.05)</code></pre>
 <pre><code>##    Mode   FALSE    TRUE 
 ## logical  145593   29648</code></pre>
-<pre class="r"><code>saveRDS(stage.average.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_stages_average_sva.Rds&quot;))</code></pre>
+<pre class="r"><code>saveRDS(stage.average.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_stages_average_pca.Rds&quot;))</code></pre>
 <p>Most of the regions identified on a per-somite basis are also significant when taking their average.</p>
 <pre class="r"><code>stage.average.pca.sig &lt;- stage.average.pca[stage.average.pca$FDR&lt;0.05]
 stage.perSomite.pca.sig &lt;- stage.perSomite.pca[[&quot;somiteI&quot;]][stage.perSomite.pca[[&quot;somiteI&quot;]]$FDR&lt;0.05]

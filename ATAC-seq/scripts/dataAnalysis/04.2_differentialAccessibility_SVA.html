@@ -543,7 +543,7 @@ mcols(stage.average.sva) &lt;- combineTests(merged$id, test$table)
 summary(stage.average.sva$FDR&lt;0.05)</code></pre>
 <pre><code>##    Mode   FALSE    TRUE 
 ## logical  164763   10478</code></pre>
-<pre class="r"><code>saveRDS(filtered.data, paste0(dir, &quot;ATAC-seq/results/04.2_diffAccessibility_stages_average_sva.Rds&quot;))</code></pre>
+<pre class="r"><code>saveRDS(stage.average.sva, paste0(dir, &quot;ATAC-seq/results/04.2_diffAccessibility_stages_average_sva.Rds&quot;))</code></pre>
 <pre class="r"><code>sessionInfo()</code></pre>
 <pre><code>## R version 3.5.1 (2018-07-02)
 ## Platform: x86_64-pc-linux-gnu (64-bit)
@@ -600,7 +600,7 @@ summary(stage.average.sva$FDR&lt;0.05)</code></pre>
 ## [41] locfit_1.5-9.1           ensembldb_2.6.8         
 ## [43] AnnotationDbi_1.44.0     lambda.r_1.2.3          
 ## [45] ade4_1.7-13              compiler_3.5.1          
-## [47] rlang_0.3.3              RCurl_1.95-4.12         
+## [47] rlang_0.3.4              RCurl_1.95-4.12         
 ## [49] bitops_1.0-6             rmarkdown_1.12          
 ## [51] multtest_2.38.0          curl_3.3                
 ## [53] DBI_1.0.0                R6_2.4.0                

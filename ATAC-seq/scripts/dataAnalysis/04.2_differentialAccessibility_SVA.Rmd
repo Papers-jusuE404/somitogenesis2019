@@ -273,7 +273,7 @@ mcols(stage.average.sva) <- combineTests(merged$id, test$table)
 
 summary(stage.average.sva$FDR<0.05)
 
-saveRDS(filtered.data, paste0(dir, "ATAC-seq/results/04.2_diffAccessibility_stages_average_sva.Rds"))
+saveRDS(stage.average.sva, paste0(dir, "ATAC-seq/results/04.2_diffAccessibility_stages_average_sva.Rds"))
 ```
 
 ```{r info}
