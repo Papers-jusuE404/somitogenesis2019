@@ -1,0 +1,336 @@
+---
+title: "Overlaps of DA regions"
+date: "15 April 2019"
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(csaw)
+library(ChIPpeakAnno)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(org.Mm.eg.db)
+
+dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+```
+
+We have performed differential accessibility (DA) analysis on the ATAC-seq data, testing for differences between the somite trios and between the different stages. To effectively remove technical biases, we computed the residuals from the fit of the `somite*stage` interaction, and performed PCA on them; we used the first 18 PCs as covariates in the DA analysis (18 PCs were chosen based on parallel analysis, which uses permutations of the count data to calculate the amount of variance explained under a null model; only PCs that explain more variance than under the null are retained). The number of significant regions are summarised below:
+
+```{r data}
+## metadata
+meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+meta <- meta[meta$QCpass==1,]
+
+### DA regions
+### merge the results from all different comparisons into a single table, keeping the FDR for each comparison for each region
+
+## somite trios
+# per stage
+trios.perStage <- readRDS(paste0(dir, "ATAC-seq/results/04.3_diffAccessibility_somiteTrios_perStage_pca.Rds"))
+for(i in 1:length(trios.perStage)){
+  trios.perStage[[i]] <- trios.perStage[[i]][order(trios.perStage[[i]])]
+}
+stopifnot(identical(ranges(trios.perStage[["stage8"]]), ranges(trios.perStage[["stage18"]])))
+stopifnot(identical(ranges(trios.perStage[["stage21"]]), ranges(trios.perStage[["stage35"]])))
+
+trios.perStage.all <- as.data.frame(trios.perStage[["stage8"]])[,c(1:4,6,14)]
+colnames(trios.perStage.all)[ncol(trios.perStage.all)] <- "stage8"
+trios.perStage.all$stage18 <- trios.perStage[["stage18"]]$FDR
+trios.perStage.all$stage21 <- trios.perStage[["stage21"]]$FDR
+trios.perStage.all$stage25 <- trios.perStage[["stage25"]]$FDR
+trios.perStage.all$stage35 <- trios.perStage[["stage35"]]$FDR
+trios.perStage.all <- subset(trios.perStage.all, trios.perStage.all$stage8 < 0.05 | trios.perStage.all$stage18 < 0.05 | trios.perStage.all$stage21 < 0.05 | trios.perStage.all$stage25 < 0.05 | trios.perStage.all$stage35 < 0.05)
+row.names(trios.perStage.all) <- paste0(trios.perStage.all$seqnames, ":", trios.perStage.all$start, "-", trios.perStage.all$end)
+
+nDE <- t(data.frame(stage8 = nrow(trios.perStage.all[trios.perStage.all$stage8 < 0.05,]),
+                  stage18 = nrow(trios.perStage.all[trios.perStage.all$stage18 < 0.05,]),
+                  stage21 = nrow(trios.perStage.all[trios.perStage.all$stage21 < 0.05,]),
+                  stage25 = nrow(trios.perStage.all[trios.perStage.all$stage25 < 0.05,]),
+                  stage35 = nrow(trios.perStage.all[trios.perStage.all$stage35 < 0.05,])))
+colnames(nDE) <- "trios.perStage"
+nDE
+
+# stage average
+trios.average <- readRDS(paste0(dir, "ATAC-seq/results/04.3_diffAccessibility_somiteTrios_average_pca.Rds"))
+for(i in 1:length(trios.average)){
+  trios.average[[i]] <- trios.average[[i]][order(trios.average[[i]])]
+}
+stopifnot(identical(ranges(trios.average[["somiteIIvsI"]]), ranges(trios.average[["somiteIIIvsI"]])))
+stopifnot(identical(ranges(trios.average[["somiteIIIvsI"]]), ranges(trios.average[["somiteIIIvsII"]])))
+
+trios.average.all <- as.data.frame(trios.average[["somiteIIvsI"]])[,c(1:4,6:8,10)]
+colnames(trios.average.all)[ncol(trios.average.all)] <- "somiteIIvsI"
+trios.average.all$somiteIIIvsII <- trios.average[["somiteIIIvsII"]]$FDR
+trios.average.all$somiteIIIvsI <- trios.average[["somiteIIIvsI"]]$FDR
+trios.average.all <- subset(trios.average.all, trios.average.all$somiteIIvsI < 0.05 | trios.average.all$somiteIIIvsII < 0.05 | trios.average.all$somiteIIIvsI < 0.05)
+row.names(trios.average.all) <- paste0(trios.average.all$seqnames, ":", trios.average.all$start, "-", trios.average.all$end)
+
+nDE <- t(data.frame(somiteIvsII = nrow(trios.average.all[trios.average.all$somiteIIvsI < 0.05,]),
+                  somiteIIvsIII = nrow(trios.average.all[trios.average.all$somiteIIIvsII < 0.05,]),
+                  somiteIvsIII = nrow(trios.average.all[trios.average.all$somiteIIIvsI < 0.05,])))
+colnames(nDE) <- "trios.average"
+nDE
+
+## stages
+# per somite
+stage.perSomite <- readRDS(paste0(dir, "ATAC-seq/results/04.3_diffAccessibility_stages_perSomite_pca.Rds"))
+for(i in 1:length(stage.perSomite)){
+  stage.perSomite[[i]] <- stage.perSomite[[i]][order(stage.perSomite[[i]])]
+}
+stopifnot(identical(ranges(stage.perSomite[["somiteI"]]), ranges(stage.perSomite[["somiteII"]])))
+stopifnot(identical(ranges(stage.perSomite[["somiteI"]]), ranges(stage.perSomite[["somiteIII"]])))
+
+stage.perSomite.all <- as.data.frame(stage.perSomite[["somiteI"]])[,c(1:4,6,36)]
+colnames(stage.perSomite.all)[ncol(stage.perSomite.all)] <- "somiteI"
+stage.perSomite.all$somiteII <- stage.perSomite[["somiteII"]]$FDR
+stage.perSomite.all$somiteIII <- stage.perSomite[["somiteIII"]]$FDR
+stage.perSomite.all <- subset(stage.perSomite.all, stage.perSomite.all$somiteI < 0.05 | stage.perSomite.all$somiteII < 0.05 | stage.perSomite.all$somiteIII < 0.05)
+row.names(stage.perSomite.all) <- paste0(stage.perSomite.all$seqnames, ":", stage.perSomite.all$start, "-", stage.perSomite.all$end)
+
+nDE <- t(data.frame(somiteI = nrow(stage.perSomite.all[stage.perSomite.all$somiteI < 0.05,]),
+                    somiteII = nrow(stage.perSomite.all[stage.perSomite.all$somiteII < 0.05,]),
+                    somiteIII = nrow(stage.perSomite.all[stage.perSomite.all$somiteIII < 0.05,])))
+colnames(nDE) <- "stages.perSomite"
+nDE
+
+# somite average
+stage.average.all <- as.data.frame(readRDS(paste0(dir, "ATAC-seq/results/04.3_diffAccessibility_stages_average_pca.Rds")))[,c(1:4,6,38)]
+stage.average.all <- stage.average.all[stage.average.all$FDR < 0.05,]
+row.names(stage.average.all) <- paste0(stage.average.all$seqnames, ":", stage.average.all$start, "-", stage.average.all$end)
+
+nDE <- t(data.frame(any = nrow(stage.average.all)))
+colnames(nDE) <- "stages.average"
+nDE
+```
+
+### Overlap between average and somite/stage-specific tests
+
+The analyses with the average profiles across stages (for somite trios comparisons) or across somites (for stage comparisons) have the most statistical power and thus detect the largest number of significant regions. But any stage- or somite-specific change are lost.
+
+Interestingly, the overlap between the average versus stage-specific results for the somite trios comparisons is small, with only a quarter of the regions recovered in the stage-specific tests also significant when the average is taken.
+
+```{r trios}
+ave <- GRanges(trios.average.all$seqnames, IRanges(trios.average.all$start, trios.average.all$end))
+perStage <- GRanges(trios.perStage.all$seqnames, IRanges(trios.perStage.all$start, trios.perStage.all$end), stage8=trios.perStage.all$stage8, stage18=trios.perStage.all$stage18, stage21=trios.perStage.all$stage21, stage25=trios.perStage.all$stage25, stage35=trios.perStage.all$stage35)
+
+nDE <- matrix(c(length(perStage), length(ave), length(unique(subjectHits(findOverlaps(ave, perStage)))), length(unique(queryHits(findOverlaps(ave, perStage))))), ncol=2)
+colnames(nDE) <- c("total", "overlap")
+row.names(nDE) <- c("perStage", "average")
+nDE
+```
+
+Also, most of the differences identified within each stage are not shared with the other stages.
+
+```{r trios.perstage, warning=FALSE, message=FALSE, fig.width=5, fig.height=5}
+p <- makeVennDiagram(list(stage8 = trios.perStage[["stage8"]][trios.perStage[["stage8"]]$FDR<0.05,],
+                     stage18 = trios.perStage[["stage18"]][trios.perStage[["stage18"]]$FDR<0.05,],
+                     stage21 = trios.perStage[["stage21"]][trios.perStage[["stage21"]]$FDR<0.05,],
+                     stage25 = trios.perStage[["stage25"]][trios.perStage[["stage25"]]$FDR<0.05,],
+                     stage35 = trios.perStage[["stage35"]][trios.perStage[["stage35"]]$FDR<0.05,]), 
+                     fill=c("tomato1", "darkolivegreen4", "steelblue", "darkorange1", "purple2"), alpha=0.2,
+                     cat.col=c("tomato1", "darkolivegreen4", "steelblue", "darkorange1", "purple2"),
+                     cat.fontface=2, cat.cex=0.9)
+```
+
+There is a large number of regions identified when only using the stage25 data, and most are not recovered with the average test, so it'll be interesting to see what these regions are.
+
+In terms of the stage comparisons, most of the differences on a per-somite basis are also significant when taking their average.
+
+```{r stages}
+ave <- GRanges(stage.average.all$seqnames, IRanges(stage.average.all$start, stage.average.all$end))
+perSomite <- GRanges(stage.perSomite.all$seqnames, IRanges(stage.perSomite.all$start, stage.perSomite.all$end))
+
+nDE <- matrix(c(length(perSomite), length(ave), length(unique(subjectHits(findOverlaps(ave, perSomite)))), length(unique(queryHits(findOverlaps(ave, perSomite))))), ncol=2)
+colnames(nDE) <- c("total", "overlap")
+row.names(nDE) <- c("perSomite", "average")
+nDE
+```
+
+In terms of the per-somite results, somiteI data returns a much higher number of differences; 14,207 significant regions of which 75% are also recovered in the average analysis This suggests that the difference in numbers comes from increased power (we have several replicates for all stages for somite I but not for the others) but also some of these regions might be significant in the average test driven by the somiteI behaviour. 
+
+For somites II and III, most of the regions are shared with the other somites, with about ~30% of their significant regions private.
+
+```{r stages.persomite, warning=FALSE, message=FALSE, fig.width=5, fig.height=5}
+p <- makeVennDiagram(list(somiteI = stage.perSomite[["somiteI"]][stage.perSomite[["somiteI"]]$FDR<0.05,],
+                          somiteII = stage.perSomite[["somiteII"]][stage.perSomite[["somiteII"]]$FDR<0.05,],
+                          somiteIII = stage.perSomite[["somiteIII"]][stage.perSomite[["somiteIII"]]$FDR<0.05,]),
+                     fill=c("tomato1", "darkolivegreen4", "steelblue"), alpha=0.2,
+                     cat.col=c("tomato1", "darkolivegreen4", "steelblue"),
+                     cat.fontface=2, cat.cex=0.9)
+```
+
+### Peak sets
+
+For downstream analyses, we create independent sets of DA regions:
+
+- **Robust set**: regions identified in average test plus at least one stage/somite-specific test.
+- **Power set**: regions identified only in average test.
+- **Specific set**: regions identified only in stage/somite-specific test; split by the comparison of relevance.
+
+```{r sets}
+## somite trios
+trios.robust <- trios.average.all[intersect(row.names(trios.average.all), row.names(trios.perStage.all)),] # 439
+trios.power <- trios.average.all[setdiff(row.names(trios.average.all), row.names(trios.robust)),] # 1,142
+trios.specific <- trios.perStage.all[setdiff(row.names(trios.perStage.all), row.names(trios.robust)),] # 1,371
+trios.specific.stage8 <- trios.specific[trios.specific$stage8 < 0.05 & 
+                                          trios.specific$stage18 > 0.05 & 
+                                          trios.specific$stage21 > 0.05 & 
+                                          trios.specific$stage25 > 0.05 & 
+                                          trios.specific$stage35 > 0.05,] # 462
+trios.specific.stage18 <- trios.specific[trios.specific$stage18 < 0.05 & 
+                                          trios.specific$stage8 > 0.05 & 
+                                           trios.specific$stage21 > 0.05 & 
+                                          trios.specific$stage25 > 0.05 & 
+                                           trios.specific$stage35 > 0.05,] # 94
+trios.specific.stage21 <- trios.specific[trios.specific$stage21 < 0.05 & 
+                                          trios.specific$stage8 > 0.05 & 
+                                           trios.specific$stage18 > 0.05 & 
+                                          trios.specific$stage25 > 0.05 & 
+                                           trios.specific$stage35 > 0.05,] # 2
+trios.specific.stage25 <- trios.specific[trios.specific$stage25 < 0.05 & 
+                                          trios.specific$stage8 > 0.05 & 
+                                           trios.specific$stage18 > 0.05 & 
+                                          trios.specific$stage21 > 0.05 & 
+                                           trios.specific$stage35 > 0.05,] # 755
+trios.specific.stage35 <- trios.specific[trios.specific$stage35 < 0.05 & 
+                                          trios.specific$stage8 > 0.05 & 
+                                           trios.specific$stage18 > 0.05 & 
+                                          trios.specific$stage21 > 0.05 & 
+                                           trios.specific$stage25 > 0.05,] # 31
+# 27 regions significant in two or more stages
+
+## stage changes
+stages.robust <- stage.average.all[intersect(row.names(stage.average.all), row.names(stage.perSomite.all)),] # 12,941
+stages.power <- stage.average.all[setdiff(row.names(stage.average.all), row.names(stages.robust)),] # 16,707
+stages.specific <- stage.perSomite.all[setdiff(row.names(stage.perSomite.all), row.names(stages.robust)),] # 4,493
+stages.specific.somiteI <- stages.specific[stages.specific$somiteI < 0.05 &
+                                             stages.specific$somiteII > 0.05 & 
+                                             stages.specific$somiteIII > 0.05,] # 3,884
+stages.specific.somiteII <- stages.specific[stages.specific$somiteII < 0.05 &
+                                              stages.specific$somiteI > 0.05 & 
+                                              stages.specific$somiteIII > 0.05,] # 283
+stages.specific.somiteIII <- stages.specific[stages.specific$somiteIII < 0.05 &
+                                               stages.specific$somiteI > 0.05 & 
+                                               stages.specific$somiteI > 0.05,] # 290
+# 36 regions significant in two comparisons
+
+save(trios.robust, trios.power, trios.specific, trios.specific.stage8, trios.specific.stage18, trios.specific.stage21, trios.specific.stage25, trios.specific.stage35, stages.robust, stages.power, stages.specific, stages.specific.somiteI, stages.specific.somiteII, stages.specific.somiteIII, file=paste0(dir, "ATAC-seq/results/04.5_DApeakSets.RData"))
+```
+
+### Genomic features of DA regions
+
+Most open chromatin regions overlap or are near genes, but only about a fifth are in promoters. Thus, the vast majority of regions are putative regulatory elements. Also, DA regions are slightly enriched for more intergenic, compared to genic regions.
+
+```{r genomicFeatures}
+peakCounts <- readRDS(paste0(dir, "ATAC-seq/results/04.4_peakCounts_csawMerged.Rds"))
+peakSet <- rowRanges(peakCounts)
+ann <- detailRanges(peakSet, TxDb.Mmusculus.UCSC.mm10.knownGene, org.Mm.eg.db, dist=5000, promoter = c(3000,300))
+mcols(peakSet) <- ann
+
+peakSet$DAtrios <- 0
+peakSet$DAstages <- 0
+
+tmp <- GRanges(trios.average.all$seqnames, IRanges(trios.average.all$start, trios.average.all$end))
+tmp <- c(tmp, GRanges(trios.perStage.all$seqnames, IRanges(trios.perStage.all$start, trios.perStage.all$end)))
+tmp <- unique(tmp)
+peakSet[peakSet %in% tmp]$DAtrios <- 1
+
+tmp <- GRanges(stage.average.all$seqnames, IRanges(stage.average.all$start, stage.average.all$end))
+tmp <- c(tmp, GRanges(stage.perSomite.all$seqnames, IRanges(stage.perSomite.all$start, stage.perSomite.all$end)))
+tmp <- unique(tmp)
+peakSet[peakSet %in% tmp]$DAstages <- 1
+saveRDS(peakSet, file=paste0(dir, "ATAC-seq/results/04.5_peakSet_csawMerged_geneAnn.Rds"))
+
+# table(trios=peakSet$DAtrios, stages=peakSet$DAstages)
+#      stages
+# trios      0      1
+#     0 140295  31994
+#     1    805   2147
+
+nDE <- matrix(c(
+  length(peakSet[peakSet$overlap != ""])/length(peakSet)*100,
+  length(peakSet[peakSet$overlap != "" & peakSet$DAtrios == 1])/length(peakSet[peakSet$DAtrios == 1])*100,
+  length(peakSet[peakSet$overlap != "" & peakSet$DAstages == 1])/length(peakSet[peakSet$DAstages == 1])*100,
+  
+  length(peakSet[grep(":P", peakSet$overlap)])/length(peakSet)*100,
+  length(peakSet[peakSet$DAtrios==1][grep(":P", peakSet[peakSet$DAtrios==1]$overlap)])/length(peakSet[peakSet$DAtrios==1])*100,
+  length(peakSet[peakSet$DAstages==1][grep(":P", peakSet[peakSet$DAstages==1]$overlap)])/length(peakSet[peakSet$DAstages==1])*100,
+  
+  length(peakSet[peakSet$overlap=="" & (peakSet$left != "" | peakSet$right != "")])/length(peakSet)*100,
+  length(peakSet[peakSet$DAtrios==1 & peakSet$overlap=="" & (peakSet$left != "" | peakSet$right != "")])/length(peakSet[peakSet$DAtrios == 1])*100,
+  length(peakSet[peakSet$DAstages==1 & peakSet$overlap=="" & (peakSet$left != "" | peakSet$right != "")])/length(peakSet[peakSet$DAstages == 1])*100,
+  
+  length(peakSet[peakSet$overlap=="" & peakSet$left == "" & peakSet$right==""])/length(peakSet)*100,
+  length(peakSet[peakSet$DAtrios==1 & peakSet$overlap=="" & peakSet$left == "" & peakSet$right==""])/length(peakSet[peakSet$DAtrios==1])*100,
+  length(peakSet[peakSet$DAstages==1 & peakSet$overlap=="" & peakSet$left == "" & peakSet$right==""])/length(peakSet[peakSet$DAstages==1])*100
+), ncol=3, byrow = TRUE)
+colnames(nDE) <- c("all", "DAtrios", "DAstages")
+row.names(nDE) <- c("overlapGenes", "inPromoter", "nearGenes", "intergenic")
+round(nDE,2)
+
+# table(unlist(lapply(strsplit(unlist(strsplit(peakSet[peakSet$overlap != ""]$overlap, ",")), ":"), "[[", 3)))
+#     E     I     P    PE    PI 
+# 20359 66775 10323 23955  2471
+```
+
+```{r promoters, fig.width=10, fig.height=10, eval=FALSE, echo=FALSE}
+## RNA-seq normalised and batch-corrected counts
+rnaseq <- read.table(paste0(dir, "/RNA-seq/data/normalisedCounts_batchCorrected.tab"), stringsAsFactors = FALSE)
+colnames(rnaseq)[-1] <- paste0(substr(colnames(rnaseq)[-1], 1, nchar(colnames(rnaseq)[-1])-2), "-2")
+
+rnaseq[rnaseq$gene %in% rnaseq[which(duplicated(rnaseq$gene)),]$gene,]$gene <- paste0(rnaseq[rnaseq$gene %in% rnaseq[which(duplicated(rnaseq$gene)),]$gene,]$gene, ".", row.names(rnaseq[rnaseq$gene %in% rnaseq[which(duplicated(rnaseq$gene)),]$gene,]))
+row.names(rnaseq) <- rnaseq$gene
+rnaseq$gene <- NULL
+
+## ATAC-seq peak counts. Regress out technical effects.
+adjc <- log2(assay(peakCounts)+1)
+re.adjc <- adjc - assay(peakCounts, "offset")/log(2)
+
+pcs <- read.table(paste0(dir, "ATAC-seq/results/03_pcs_residuals.tab"))[,1:18]
+
+meta$group <- paste(meta$stage, meta$somite, sep=".")
+atac <- removeBatchEffect(re.adjc, design = model.matrix(~0+group, meta), covariates = pcs)
+colnames(atac) <- substr(peakCounts$bam.files, 83, nchar(peakCounts$bam.files)-14)
+row.names(atac) <- paste0(as.data.frame(rowRanges(peakCounts))[,1], ":", as.data.frame(rowRanges(peakCounts))[,2], "-", as.data.frame(rowRanges(peakCounts))[,3])
+
+## common samples
+sel <- intersect(colnames(atac), colnames(rnaseq))
+rnaseq <- rnaseq[,sel]
+atac <- atac[,sel]
+stopifnot(identical(colnames(rnaseq), colnames(atac)))
+
+## DA regions in promoters
+proms.trios <- peakSet[peakSet$DAtrios==1]
+proms.trios <- proms.trios[grep(":P", proms.trios$overlap)]
+proms.trios$gene <- unlist(lapply(strsplit(proms.trios$overlap, ":"), "[[", 1))
+
+proms.stages <- peakSet[peakSet$DAstages==1]
+proms.stages <- proms.stages[grep(":P", proms.stages$overlap)]
+proms.stages$gene <- unlist(lapply(strsplit(proms.stages$overlap, ":"), "[[", 1))
+
+
+par(mfrow=c(5,5), mar=c(2,2,2,2))
+cors <- c()
+for(i in 1:length(proms.trios)){
+  if(proms.trios$gene[i] %in% row.names(rnaseq)){
+    plot(atac[paste0(as.data.frame(proms.trios)[i,1], ":", as.data.frame(proms.trios)[i,2], "-", as.data.frame(proms.trios)[i,3]),], rnaseq[proms.trios$gene[i],], pch=16, xlab="", ylab="")
+    cors <- c(cors, cor(atac[paste0(as.data.frame(proms.trios)[i,1], ":", as.data.frame(proms.trios)[i,2], "-", as.data.frame(proms.trios)[i,3]),], as.numeric(rnaseq[proms.trios$gene[i],])))
+  }
+}
+# plot(density(cors))
+```
+
+
+```{r info}
+sessionInfo()
+```
+
