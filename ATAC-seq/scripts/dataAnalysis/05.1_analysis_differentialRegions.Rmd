@@ -1,0 +1,221 @@
+---
+title: "Transcription factor binding sites"
+date: "15 April 2019"
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(GenomicRanges)
+library(csaw)
+library(ChIPpeakAnno)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(org.Mm.eg.db)
+library(ggplot2)
+library(gplots)
+library(RColorBrewer)
+dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+
+#### FUNCTIONS
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols), byrow = TRUE)
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+```{r meatadata}
+## metadata
+meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+meta <- meta[meta$QCpass==1,]
+
+## peaks
+peakSet <- readRDS(file=paste0(dir, "ATAC-seq/results/04.5_peakSet_csawMerged_geneAnn.Rds"))
+```
+
+### Transcription factor binding sites
+
+In order to get an insight into possible regulatory mechanisms operating during somitogenesis, we can computationally predict transcription factor binding sites (TFBSs) based on their PWMs. Then, we can catalogue the collection of TFBSs in each (differentially) open region.
+
+Not surprisingly, all but 367 (0.21%) peaks have at least one predicted TFBS. Most regions have between 15 and 40 different TFBS predicitions.
+
+```{r tfbs}
+peakSet$TFs <- ""
+peakSet$pos <- ""
+files <- list.files(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10/"))
+for(file in files){
+  tf <- substr(file, 1, nchar(file)-9)
+  tmp <- read.table(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10/", file))
+  tmp <- GRanges(tmp$V1, IRanges(tmp$V2, tmp$V3), strand=tmp$V6, score=tmp$V5, motif=tmp$V4)
+  
+  pos <- start(tmp[subjectHits(findOverlaps(peakSet, tmp))])
+  pos <- pos[-which(duplicated(queryHits(findOverlaps(peakSet, tmp))))] # when there are several BS for the same TF keep the first
+  
+  peakSet[unique(queryHits(findOverlaps(peakSet, tmp)))]$TFs <- paste(peakSet[unique(queryHits(findOverlaps(peakSet, tmp)))]$TFs, tf, sep=",")
+  peakSet[unique(queryHits(findOverlaps(peakSet, tmp)))]$pos <- paste(peakSet[unique(queryHits(findOverlaps(peakSet, tmp)))]$pos, pos, sep=",")
+}
+
+nTFs <- unlist(lapply(strsplit(peakSet$TFs, ","), length))
+hist(nTFs, breaks=50)
+```
+
+And the number of TFBS is strongly correlated with the width of the peak.
+
+```{r width}
+plot(nTFs, width(peakSet), bty="l", xlab="number of TFBS preictions", ylab="width of peak (bp)")
+# cor(nTFs, width(peakSet)) # 0.8159893
+```
+
+#### HOX genes
+
+An interesting area to explore is the activity of Hox geens. We know their expression patterns from the RNA-seq data and we have validated the previously reported obervation that chromatin progressively opens along the cluster as development progresses. 
+
+We also know that most Hox genes bind very similar motifs, and their specificity comes from binding with cofactors. These are primarily TFs from the PBC and MEIS subclasses of TALE homeodomain proteins (PBX and MEIS/PREP proteins in mouse). 
+
+So we can start by looking at the predictions for Hox genes and whether any other TFs tend to have binding sites in the same peaks. To do this, we compute the proportion of peaks that have a predicted TFBS for each TF. Then, we check the proportions of all TFs within the set of peaks with predicted TFBSs for each Hox gene. We can then compare the proportion in the Hox-specific peakset versus the overall genomic proportion.
+
+For most Hox TFs we observe overrepresentation of other Hox genes, which is expected given that their motifs are very similar. PBX and MEIS factors also come up as overrepresented, as do other homeodomain TFs like LHX and EVX.
+
+```{r fig.width=5, fig.width=5}
+## compute the proportion of peaks with a predicted binding site for each TF
+tfs <- substr(files, 1, nchar(files)-9)
+tfs.nPeaks <- sapply(tfs, function(x) length(grep(x, peakSet$TFs)))
+
+tfs.nPeaks <- as.data.frame(tfs.nPeaks)
+colnames(tfs.nPeaks) <- c("nPeaks")
+tfs.nPeaks$prop <- tfs.nPeaks$nPeaks/length(peakSet)*100
+
+## restrict analysis to peaks for each HOX gene
+tfs.hox <- grep("^HX", tfs, value = TRUE)
+hox <- list()
+for(h in tfs.hox){
+  hox[[h]] <- peakSet[grep(paste0("\\b",h,"\\b"), peakSet$TFs)] # \\b is the word boundary to avoid grepping HXA10/11/13 when grepping HOXA1
+
+  # check if other TFs appear at much higher proportions compared to overall genome level
+  n <- table(unlist(strsplit(hox[[h]]$TFs, ",")))
+  tfs.nPeaks[,h] <- as.numeric(n[match(row.names(tfs.nPeaks), names(n))]/length(hox[[h]])*100)
+
+  df <- data.frame(TF=row.names(tfs.nPeaks), bgd=tfs.nPeaks$prop, hox=tfs.nPeaks[,h], stringsAsFactors = FALSE)
+  df <- df[-which(df$TF == h),]
+  df <- df[sample(row.names(df), size = nrow(df), replace = FALSE),]
+  print(ggplot(df, aes(1:nrow(df), hox/bgd)) + geom_point() + geom_text(aes(label=ifelse(df$hox/df$bgd > 3, df$TF, '')), nudge_x = 30, size=3) + ggtitle(h))
+}
+```
+
+This indicates that we are recovering many spurious signals, that arise simply from recognising the same motif with several PWMs. So we can look at the position of the TFBS with repsect with the position of the Hox BS, to see if all the predictions correspond to the same motif.
+
+Disappointingly, we observe that in almost all cases, the overrepresented TFs are overwhelmingly predicting the same TFBS as the one predicted for the Hox factor, with very small number of cases where the other TF binds away from the Hox. This is not surprising after checking the PWMs for some of these proteins, since they are very similar to Hox motifs. 
+
+```{r fig.width=9, fig.height=18}
+for(target in names(hox)){
+  par(mfrow=c(6,3), mar=c(2,2,2,2))
+  cofactors <- row.names(tfs.nPeaks[which(tfs.nPeaks[,target]/tfs.nPeaks$prop > 3),])
+  cofactors <- cofactors[-which(cofactors == target)]
+
+  for(c in cofactors){
+    pos.overlap <- sapply(1:length(hox[[target]]), function(x) as.numeric(unlist(strsplit(hox[[target]]$pos[x], ","))[grep(target, unlist(strsplit(hox[[target]]$TFs[x], ",")))]) - as.numeric(unlist(strsplit(hox[[target]]$pos[x], ","))[grep(c, unlist(strsplit(hox[[target]]$TFs[x], ",")))]))
+    plot(density(unlist(pos.overlap)), main=paste0(target, " - ", c), xlab="", bty="l")
+    mtext(side=3, line=-1, adj=0, text = paste("n =", length(unlist(pos.overlap))))
+  }
+}
+```
+
+```{r}
+# tfbs <- list()
+# for(file in files){
+#   tf <- substr(file, 1, nchar(file)-9)
+#   tfbs[[tf]] <- read.table(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10/", file))
+#   tfbs[[tf]] <- GRanges(tfbs[[tf]]$V1, IRanges(tfbs[[tf]]$V2, tfbs[[tf]]$V3), strand=tfbs[[tf]]$V6, score=tfbs[[tf]]$V5, motif=tfbs[[tf]]$V4)
+# }
+# saveRDS(tfbs, paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10.Rds"))
+
+hox.all <- c(hox[[1]], hox[[2]], hox[[3]], hox[[4]], hox[[5]], hox[[6]], hox[[7]], hox[[8]], hox[[9]], hox[[10]], hox[[11]], hox[[12]], hox[[13]], hox[[14]], hox[[15]], hox[[16]])
+hox.all <- unique(hox.all)
+
+peakSet.tfbs <- list()
+for(p in 1:length(hox.all)){
+  peak <- hox.all[p]
+  coords <- as.data.frame(peak)
+  name <- paste0(coords$seqnames, ":", coords$start, "-", coords$end)
+  
+  peakSet.tfbs[[name]] <- matrix(0, ncol=width(peak), nrow=length(files))
+  colnames(peakSet.tfbs[[name]]) <- 1:width(peak)
+  row.names(peakSet.tfbs[[name]]) <- substr(files, 1, nchar(files)-9)
+
+  for(tf in names(tfbs)){
+    tmp <- as.data.frame(tfbs[[tf]][queryHits(findOverlaps(tfbs[[tf]], peak))])
+  
+    if(nrow(tmp) > 0){
+      for(i in 1:nrow(tmp)){
+          peakSet.tfbs[[name]][tf,max((tmp$start-coords$start)[i],1):min((tmp$end-coords$start)[i], width(peak))] <- peakSet.tfbs[[name]][tf,max((tmp$start-coords$start)[i],1):min((tmp$end-coords$start)[i], width(peak))]+1
+      }
+    }
+  }
+  peakSet.tfbs[[name]] <- peakSet.tfbs[[name]][rowSums(peakSet.tfbs[[name]])>0,]
+}
+saveRDS(peakSet.tfbs, paste0(dir, "ATAC-seq/results/05.1_TFBSmatrix_HOXpeaks.Rds"))
+
+# heatmap.2(peakSet.tfbs[[1]], trace="none", col=brewer.pal(n=9, "Blues"), Colv = FALSE, dendrogram = "row")
+```
+
+
+
+We have also identified, from the RNA-seq data, genes that are correlated to Hox gene expression. These are candidates for Hox-regulated genes. For this to be likely, we expect them to have binding sites of Hox genes in their promoters.
+
+```{r}
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r info}
+sessionInfo()
+```
+
