@@ -24,6 +24,8 @@ library(ggplot2)
 library(ggrepel)
 library(gplots)
 library(RColorBrewer)
+library(BSgenome.Mmusculus.UCSC.mm10)
+
 dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
 
 #### FUNCTIONS
@@ -62,6 +64,8 @@ multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
 }
 ```
 
+We have processed and analysed the RNA-seq and ATAC-seq data from mouse somites. We have gene expression and peak abundance levels, plus lists of differentially expressed/accessible genes and regions. 
+
 ```{r meatadata}
 ## metadata
 meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
@@ -78,10 +82,12 @@ gene.ann <- read.table(paste0(dir, "RNA-seq/data/Mus_musculus.GRCm38.93.ann"))
 gene.ann <- GRanges(paste0("chr", gene.ann$V3), IRanges(gene.ann$V4, gene.ann$V5), strand = gene.ann$V6, gene=gene.ann$V2, ID=gene.ann$V1)
 ```
 
+Now we want to identify interesting candidates important in the regulation of somitogenesis. One approach is to perform a transcription-factor centric analysis, where we focus on elements putatively regulated by particular transcription factors.
 
 ```{r readTFmatches_mm10}
 ## HOCOMOCO v10 PWMs used to scan the mm10 genome with PWMscan, default parameters.
 ## Taken from diffTF [https://www.embl.de/download/zaugg/diffTF/TFBS/TFBS_mm10_PWMScan_HOCOMOCOv10.tar.gz]
+## removed ENOA which has been retracted in HOCOMOCOv11
 tfbs <- list()
 files <- list.files(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10/"))
 for(file in files){
@@ -90,11 +96,12 @@ for(file in files){
   tfbs[[tf]] <- GRanges(tfbs[[tf]]$V1, IRanges(tfbs[[tf]]$V2, tfbs[[tf]]$V3), strand=tfbs[[tf]]$V6, motif=tfbs[[tf]]$V4, score=tfbs[[tf]]$V5)
 }
 saveRDS(tfbs, paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10.Rds"))
+# tfbs <- readRDS(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10.Rds"))
 ```
 
-We will use the PWMs from HOCOMOCO, which is based on ChIP-seq data and should contain high-quality motifs. Each PWM is used to scan the mouse refence genome and predict TF binding sites. We read the coordinates of such putative TFBSs for all `r length(tfbs)` TFs available.
+We will use the PWMs from HOCOMOCO, a project based on ChIP-seq data that should provide high-quality motifs. Each PWM is used to scan the mouse refence genome and predict TF binding sites. We read the coordinates of such putative TFBSs for all `r length(tfbs)` TFs available.
 
-Most TFs have around 100,000 predicted bindingi sites across the genome. Some (`r sum(unlist(lapply(tfbs, length))>1e6)`) have over a million sites, and some (`r sum(unlist(lapply(tfbs, length))<1e4)`) have less than 10 thousand (and maybe these are low-quality PWMs, or factors without a well defined motif).
+Most TFs have around 100,000 predicted binding sites across the genome. Some (`r sum(unlist(lapply(tfbs, length))>1e6)`) have over a million sites, and some (`r sum(unlist(lapply(tfbs, length))<1e4)`) have less than 10 thousand (and maybe these are low-quality PWMs, or factors without a well defined motif).
 
 ```{r totalBS}
 plot(density(log10(unlist(lapply(tfbs, length)))), bty="l", main="number of TFBS across the mouse geneome", xlab=expression('log'[10]*' binding sites'))
@@ -110,7 +117,7 @@ for(tf in names(tfbs)){
 plot(density(log10(unlist(lapply(tfbs.open, length)))), bty="l", main="number of TFBS across the accessible mouse geneome", xlab=expression('log'[10]*' binding sites in open chromatin regions'))
 ```
 
-However, there are a number of TFs that have a higher proportion of their TFBSs in open regions. Among these are TFs like MBD2, which binds methylated CpGs, which are expected to be enriched in open chromatin due to active promoters (and other TFs binding CpG or GC rich motifs, like SP4 and EGR1). But also factors like KLF6 which is necessary for mesoderm differentiation (KO results in a prolongation of the epiblast-like cell stage and a delay in induction of mesoderm) or E2F1, which has been implicated in regulatin muscle formation.
+However, there are a number of TFs that have a higher proportion of their TFBSs in open regions. Among these are TFs like MBD2, which binds methylated CpGs, which are expected to be enriched in open chromatin due to active promoters (and other TFs binding CpG or GC rich motifs, like SP4 and EGR1). But also factors like KLF6 which is necessary for mesoderm differentiation (KO results in a prolongation of the epiblast-like cell stage and a delay in induction of mesoderm) or E2F1, which has been implicated in regulating muscle formation.
 
 ```{r over, warning=FALSE, message=FALSE}
 df <- data.frame(tf=names(tfbs.open), open = unlist(lapply(tfbs.open, length))/unlist(lapply(tfbs, length)))
@@ -121,38 +128,126 @@ ggplot(df, aes(1, open*100, label=tf)) + geom_violin() + ylab("% of total TFBS i
 Also important is that nearly a third of all the TFs are not expressed (at significant levels) in somites. And for those that are expressed, there is no relationship between expression level and number of binding sites (or porportion open).
 
 ```{r tfs_expr}
+## we obtain annotation for the TF PWMs from HOCOMOCO [http://hocomoco10.autosome.ru/final_bundle/MOUSE/mono/HOCOMOCOv10_annotation_MOUSE_mono.tsv]
+## we edit this list to match the order of the TFs as read in tfbs. We also remove a few (5) TFs that are not in the diffTF dataset. And we remove ENOA which has been retracted in v11
+
 motif.ann <- read.table(paste0(dir, "ATAC-seq/motifs/HOCOMOCOv10_MOUSE_mono_annotation.tsv"), sep="\t", header = TRUE, stringsAsFactors = FALSE)
-## there are a few TFs missing in the diffTF data, so need to remove from the annotation file
-motif.ann <- motif.ann[-c(23,30,256,258,395),]
+stopifnot(identical(names(tfbs.open), motif.ann$diffTF))
 
+## we can now match the TFs to their genes
 motif.gene <- motif.ann$Transcription.factor
-names(motif.gene) <- names(tfbs)
+names(motif.gene) <- motif.ann$diffTF
 
-motif.gene
 tf.expr <- rnaseq[match(motif.gene, rnaseq$gene),]$mean
-names(tf.expr) <- names(tfbs.open)
+names(tf.expr) <- names(motif.gene)
 # sum(is.na(tf.expr)) # 127 (30.1%)
 
 plot(tf.expr, log10(unlist(lapply(tfbs.open, length))), bty="l", xlab=expression('log'[2]*' normalised expression'), ylab=expression('log'[10]*' total binding sites'))
 ```
 
+For each peak, we can create a matrix with the number of binding sites for each TF that is expressed in the somites. That is `r length(tf.expr[!is.na(tf.expr)])` different TFs across `r length(pepeakSet)` peaks, and thus, the analysis now restricts to expressed TFs and open binding sites.
 
+Peaks have a median of 24 predicted TFBSs, with the IQR between 12 and 42 TFBS.
 
 ```{r}
-## tile the genome; 1Mb regions
-tiles <- tileGenome(seqinfo(BSgenome.Mmusculus.UCSC.mm10), tilewidth = 1e6, cut.last.tile.in.chrom = TRUE)
-
-## for each TF, count the number of BS per tile
-counts <- data.frame(tile = 1:length(tiles), chr = seqnames(tiles))
-
-plots <- list()
-for(tf in names(tfbs)){
-  counts$tf <- 0
-  counts[unique(queryHits(findOverlaps(tiles, tfbs[[tf]]))),]$tf <- table(queryHits(findOverlaps(tiles, tfbs[[tf]])))
-  colnames(counts)[ncol(counts)] <- tf
-  plots[[tf]] <- ggplot(counts, aes(tile, counts[,colnames(counts)[ncol(counts)]], color=chr)) + geom_point() + theme(legend.position = "none") + scale_colour_manual(values = rep(c("black", "grey"),33)) + ylab("total TFBS per Mb") + xlab("") + theme(axis.ticks.x = element_blank(), axis.text.x = element_blank()) + ggtitle(colnames(counts)[ncol(counts)])
+## for each peak, count the number of TFBS
+counts.open <- as.data.frame(peakSet)
+for(tf in names(tf.expr[!is.na(tf.expr)])){
+  counts.open$tf <- 0
+  counts.open[unique(queryHits(findOverlaps(peakSet, tfbs[[tf]]))),]$tf <- table(queryHits(findOverlaps(peakSet, tfbs[[tf]])))
+  colnames(counts.open)[ncol(counts.open)] <- tf
 }
-head(counts)
+row.names(counts.open) <- paste0(counts.open$seqnames, ":", counts.open$start, "-", counts.open$end)
+counts.open$totalTFBS <- rowSums(counts.open[,-c(1:10)])
+
+ggplot(counts.open, aes(1, log10(totalTFBS+1))) + geom_violin() + geom_boxplot(width=0.1) + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) + ylab(expression('log'[10]*' total TFBS + 1'))
+nTFs <- table(df$count)
+```
+
+`r unname(nTFs['0'])` peaks have no predicted TFBSs and `r sum(nTFs[as.numeric(names(nTFs))>100])` peaks have more than 100 predicted binding sites.
+
+Not surprisingly, peaks that are at promoters have higher numbers of TFBS. This gives us confidence in the computational predictions.
+
+```{r}
+proms <- promoters(gene.ann, upstream = 3000, downstream = 300)
+peaks.inPromoters <- peakSet[unique(queryHits(findOverlaps(peakSet, proms)))]
+
+genes.withoutProms <- setdiff(gene.ann, proms)
+peaks.inGenes <- peakSet[unique(queryHits(findOverlaps(peakSet, genes.withoutProms)))]
+peaks.inGenes <- peaks.inGenes[-unique(queryHits(findOverlaps(peaks.inGenes, peaks.inPromoters, type="equal")))]
+
+peaks.intergenic <- peakSet[-unique(queryHits(findOverlaps(peakSet, c(peaks.inGenes, peaks.inPromoters), type = "equal")))]
+
+counts.open$prom <- 0
+counts.open$gene <- 0
+counts.open$inter <- 0
+
+tmp <- as.data.frame(peaks.inPromoters)
+counts.open[paste0(tmp$seqnames, ":", tmp$start, "-", tmp$end),]$prom <- 1
+tmp <- as.data.frame(peaks.inGenes)
+counts.open[paste0(tmp$seqnames, ":", tmp$start, "-", tmp$end),]$gene <- 1
+tmp <- as.data.frame(peaks.intergenic)
+counts.open[paste0(tmp$seqnames, ":", tmp$start, "-", tmp$end),]$inter <- 1
+
+counts.open$class <- ifelse(counts.open$prom==1, "promoter", ifelse(counts.open$gene == 1, "genic", "intergenic"))
+
+ggplot(counts.open, aes(class, log10(totalTFBS+1))) + geom_violin() + geom_boxplot(width=0.1) + ylab(expression('log'[10]*' total TFBS + 1'))
+```
+
+For intergenic peaks, there is no striking differences regarding how far they are from the nearest promoter. There is a slight decrease in the number of TFBS as the distance increases, but this is subtle.
+
+```{r}
+counts.open$distanceToNearestProm <- 0
+counts.open[counts.open$inter==1,]$distanceToNearestProm <- as.data.frame(mcols(distanceToNearest(peaks.intergenic, proms)))[,1]
+
+tmp <- counts.open[counts.open$inter==1, c(1:10,305:310)]
+tmp <- tmp[order(tmp$distanceToNearestProm),]
+tmp$bin <- c(rep(1:9,each=5190), rep(10, 5229))
+
+plot(sapply(1:10, function(x) summary(tmp[tmp$bin==x,]$totalTFBS))[4,], ylim=c(15,40), pch=16, col="grey", type="b", xlab="increasing distance to nearest promoter", ylab="total number of TFBS", axes=FALSE); box(bty="l"); axis(2); axis(1, at=c(1,10), labels = c("near", "far"))
+points(sapply(1:10, function(x) summary(tmp[tmp$bin==x,]$totalTFBS))[3,], pch=16, type="b")
+points(sapply(1:10, function(x) summary(tmp[tmp$bin==x,]$totalTFBS))[5,], type="b")
+legend("topright", legend = c("75quantile", "mean", "median"), pch=c(1,16,16), col=c("black", "grey","black"), cex=0.8, bty="n")
+```
+
+It might be interesting to study intergenic peaks with a large number of TFBSs as potential candidate regulatory enhancers, where we can infer mechanism more easily.
+
+```{r}
+tfs <- tf.expr[motif.ann[grep("HOX-related factors", motif.ann$TF.family),]$diffTF]
+tfs <- tfs[!is.na(tfs)]
+
+hox.bound <- counts.open[,c("seqnames",names(tfs))]
+ggplot(hox.bound, aes(1:nrow(hox.bound), rowSums(hox.bound[,-1]), colour=seqnames)) + geom_point() + scale_color_manual(values = rep(c("black", "grey"), 10)) + theme(legend.position = "none")
+
+da <- c()
+for(i in c(0:8)){
+  tmp <- hox.bound[rowSums(hox.bound[,-c(1,7,11)])>=i,]
+  tmp <- counts.open[row.names(tmp),]
+  # print(dim(tmp))
+  da <- c(da, sum(tmp$DAstages)/nrow(tmp)*100)
+}
+plot(da)
+# chr10:107542301-107542850
+# counts.open["chr10:107543201-107543350",]
+```
+
+```{r}
+class <- matrix(ncol=4, nrow=8)
+for(i in 0:7){
+  tmp <- hox.bound[rowSums(hox.bound[,-c(1,7,11)])>i,]
+  tmp <- counts.open[row.names(tmp), c(1:10,305:310)]
+  class[i+1,] <- c(nrow(tmp), sum(tmp$prom)/nrow(tmp)*100, 
+                   sum(tmp$gene)/nrow(tmp)*100,
+                   sum(tmp$inter)/nrow(tmp)*100)
+}
+cols <- rainbow(n=8)
+plot(c(sum(counts.open$prom)/nrow(counts.open)*100, sum(counts.open$gene)/nrow(counts.open)*100, sum(counts.open$inter)/nrow(counts.open)*100), type="l", ylim=c(12,60))
+for(i in 1:nrow(class)){ lines(class[i,-1], col=cols[i]) }
+
+hox.bound <- hox.bound[rowSums(hox.bound[,-c(1,7,11)])>0,]
+hox.bound <- counts.open[row.names(hox.bound),]
+plot(density(log10(hox.bound[hox.bound$inter==1,]$distanceToNearestProm)))
+lines(density(log10(counts.open[counts.open$inter==1,]$distanceToNearestProm)), col="grey")
 ```
 
 
@@ -162,6 +257,18 @@ head(counts)
 
 
 
+
+
+
+
+
+
+
+
+```{r}
+
+tf.expr[substr(motif.ann[grep("homeo domain", motif.ann$TF.family),]$Model, 1, nchar(motif.ann[grep("homeo domain", motif.ann$TF.family),]$Model)-14)]
+```
 
 
 
