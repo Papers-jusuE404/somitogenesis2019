@@ -25,6 +25,7 @@ library(ggrepel)
 library(gplots)
 library(RColorBrewer)
 library(BSgenome.Mmusculus.UCSC.mm10)
+library(topGO)
 
 dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
 
@@ -75,7 +76,7 @@ meta <- meta[meta$QCpass==1,]
 peakSet <- readRDS(file=paste0(dir, "ATAC-seq/results/04.5_peakSet_csawMerged_geneAnn.Rds"))
 
 ## gene expression
-rnaseq <- read.table(paste0(dir, "RNA-seq/data/normalisedCounts_batchCorrected.tab"))
+rnaseq <- read.table(paste0(dir, "RNA-seq/data/normalisedCounts_batchCorrected.tab"), stringsAsFactors = FALSE)
 rnaseq$mean <- apply(rnaseq[,-1], 1, mean)
 
 gene.ann <- read.table(paste0(dir, "RNA-seq/data/Mus_musculus.GRCm38.93.ann"))
@@ -221,80 +222,152 @@ It might be interesting to study intergenic peaks with a large number of TFBSs a
 
 We can also study regions with binding sites for a particular TF or family of TFs. Of interest are the Hox genes, which we know are paramount in patterning and defining the identity of the different vertebral segments. However, we don't really understand how they achieve this, or which genes they regulate.
 
-So we take all peaks with a predicted binding site for a `HOX-related factor` family of TFs; this includes all Hox genes plus Cdx1/2 and Evx1/2 (Evx2 is not expressed). Cdx1/2 have around 4 thousand binding sites in peaks, whereas Evx2 and Hox genes have arouns 1 to 2 thousand. In stark contrast, Hoxa1 and Hoxb1 have around 7 thousand sites.
+So we take all peaks with a predicted binding site for a `HOX-related factor` family of TFs; this includes all Hox genes plus CDX1/2 and EVX1/2 (Evx2 is not expressed). CDX1/2 have around 4 thousand binding sites in peaks, whereas EVX1 and most HOX genes have around 1 to 2 thousand. However, HOXA1 and HOXB1 have around 7 thousand sites and HOXD9 has nearly 5 thousand.
 
-Most of the sites identified as Hoxb1 sites are also called as Hoxa1 sites, since they have very very similar PWMs. This means that these two factors are basically reporting the same features and we are counting them twice. This will also be the case for other Hox sites, where the same site is identified for several Hox factors and thus, we are overestimating the number of TFBS.
-
-In the plot below, if we remove Hoxb1 the numbers pretty much half, indicating that the effect of Hoxa1/b1 is large, given their much higher number of predicted sites.
-
-```{r hox}
+```{r nBS_hox}
 tfs <- tf.expr[motif.ann[grep("HOX-related factors", motif.ann$TF.family),]$diffTF]
 tfs <- tfs[!is.na(tfs)]
-
 hox.bound <- counts.open[,c("seqnames",names(tfs))]
-ggplot(hox.bound, aes(1:nrow(hox.bound), rowSums(hox.bound[,-1]), colour=seqnames)) + geom_point() + scale_color_manual(values = rep(c("black", "grey"), 10)) + theme(legend.position = "none", axis.ticks.x = element_blank(), axis.text.x = element_blank()) + ylab("number of HOX binding sites per peak") + xlab("")
+
+plot(colSums(hox.bound[,-1]), pch=16, xlab="", ylab="total binding sites in peaks", axes=FALSE)
+box(bty="l"); axis(2); axis(1, at=1:18, labels = colnames(hox.bound)[-1],las=2)
+abline(h=c(1e3,2e3), lty=2, col="grey")
 ```
 
-Interestingly, if we take all peaks with increasing number of predicted Hox binding sites, we get an increasing proportion of DA peaks across development.
+Many of the sites identified as HOXB1 sites are also called as HOXA1 sites, since they have very very similar PWMs. This means that these two factors are very often reporting the same features and we are counting them twice. This will also be the case for other Hox sites, where the same site is identified for several Hox factors and thus, we are overestimating the number of TFBS.
 
-Overall, nearly 20% of the peaks are differential across development. But this goes up to nearly 28% if the peaks have a Hox BS, and this keeps increasing to ~40% if the peaks have more than 6 BSs (though there are only 89 peaks with more than 6 BSs, so the percentage might not be stable).
+```{r hox, eval=FALSE, echo=FALSE}
+# length(row.names(hox.bound[hox.bound$HXA1>0,])) # 6625
+# length(row.names(hox.bound[hox.bound$HXB1>0,])) # 5677
+# length(intersect(row.names(hox.bound[hox.bound$HXA1>0,]), row.names(hox.bound[hox.bound$HXB1>0,])))/length(row.names(hox.bound[hox.bound$HXB1>0,]))*100 # 3639 (64.1%)
 
-```{r hox_DA}
+tmp <- t(apply(hox.bound[,-1], 1, function(x) as.numeric(x!=0)))
+colnames(tmp) <- colnames(hox.bound)[-1]
+tmp <- tmp[rowSums(tmp)>0,]
+
+plot(log10(table(rowSums(tmp[,-c(1:3)]))[-1]), xlab="number of different HOX binding sites", ylab="number of peaks", axes=FALSE, ylim=c(0,4.3))
+box(bty="l"); axis(1); axis(2, at=0:4, labels = c(0,10,100,"1,000","10,000"), las=2)
+```
+
+In the plot below, if we remove HOXB1 the numbers pretty much half, indicating that the effect of HOXA1/B1 is large, given their much higher number of predicted sites.
+
+```{r hox, fig.width=10}
+plots <- list()
+plots[[1]] <- ggplot(hox.bound, aes(1:nrow(hox.bound), rowSums(hox.bound[,-1]), colour=seqnames)) + geom_point() + scale_color_manual(values = rep(c("black", "grey"), 10)) + theme(legend.position = "none", axis.ticks.x = element_blank(), axis.text.x = element_blank()) + ylab("number of HOX binding sites per peak") + xlab("") + ylim(0,45) + ggtitle("all HOX TFs")
+plots[[2]] <- ggplot(hox.bound, aes(1:nrow(hox.bound), rowSums(hox.bound[,-c(1,11)]), colour=seqnames)) + geom_point() + scale_color_manual(values = rep(c("black", "grey"), 10)) + theme(legend.position = "none", axis.ticks.x = element_blank(), axis.text.x = element_blank()) + ylab("number of HOX binding sites per peak") + xlab("") + ylim(0,45) + ggtitle("without HOXB1")
+multiplot(plotlist = plots, cols=2)
+```
+
+There are `r sum(rowSums(hox.bound[,-1])>0)` peaks with at least one HOX binding site (BS). From these, over 99% have 6 different BSs or less.
+
+```{r nBS_perPeak}
+par(fig = c(0,1,0,1))
+plot(table(rowSums(hox.bound[,-1]))[-1], ylab="number of peaks", xlab="number of HOX BSs per peak")
+abline(h=1e3, lty=2, col="grey")
+par(fig = c(0.4,0.95, 0.3, 0.95), new = TRUE)
+plot(table(rowSums(hox.bound[,-1]))[-1], ylim=c(0,1e3), ylab="", axes=FALSE)
+box(bty="l"); axis(2, las=2); axis(1, at=c(1,5,10,20,30,40), labels = c(1,5,10,20,30,40))
+```
+
+Interestingly, if we take all peaks with increasing number of predicted HOX binding sites, we get an increasing proportion of DA peaks across development.
+
+Overall, nearly 20% of the peaks are differential across development. But this goes up to nearly 27% if the peaks have a HOX BS, and this keeps increasing to over 30% if the peaks have 2 or more BSs. The effect is most striking when both HOXA1 and HOXB1 are removed from the analysis, but still observed if only one of them is taken out.
+
+```{r hox_DA, fig.width=12, fig.height=3}
+par(mfrow=c(1,4))
 nPeaks.hoxBS <- c()
 da <- c()
-for(i in c(0:8)){
-  tmp <- hox.bound[rowSums(hox.bound[,-c(1,7,11)])>=i,]
+for(i in c(0:7)){
+  tmp <- hox.bound[rowSums(hox.bound[,-c(1)])>=i,]
   tmp <- counts.open[row.names(tmp),]
   nPeaks.hoxBS <- c(nPeaks.hoxBS, nrow(tmp))
   da <- c(da, sum(tmp$DAstages)/nrow(tmp)*100)
 }
-plot(da, pch=16, ylab="% of peaks DA across stages", xlab="number of HOX binding sites", axes=FALSE)
+plot(da, pch=16, ylab="% of peaks DA across stages", xlab="minimum number of HOX binding sites", main="all HOX TFs", axes=FALSE)
+box(bty="l"); axis(2); axis(1, at=1:8, labels=0:7)
+
+# nPeaks.hoxBS <- c()
+da <- c()
+for(i in c(0:7)){
+  tmp <- hox.bound[rowSums(hox.bound[,-c(1,7)])>=i,]
+  tmp <- counts.open[row.names(tmp),]
+  # nPeaks.hoxBS <- c(nPeaks.hoxBS, nrow(tmp))
+  da <- c(da, sum(tmp$DAstages)/nrow(tmp)*100)
+}
+plot(da, pch=16, ylab="% of peaks DA across stages", xlab="minimum number of HOX binding sites", main="no HOXA1", axes=FALSE)
+box(bty="l"); axis(2); axis(1, at=1:8, labels=0:7)
+
+# nPeaks.hoxBS <- c()
+da <- c()
+for(i in c(0:7)){
+  tmp <- hox.bound[rowSums(hox.bound[,-c(1,11)])>=i,]
+  tmp <- counts.open[row.names(tmp),]
+  # nPeaks.hoxBS <- c(nPeaks.hoxBS, nrow(tmp))
+  da <- c(da, sum(tmp$DAstages)/nrow(tmp)*100)
+}
+plot(da, pch=16, ylab="% of peaks DA across stages", xlab="minimum number of HOX binding sites", main="no HOXB1", axes=FALSE)
+box(bty="l"); axis(2); axis(1, at=1:8, labels=0:7)
+
+# nPeaks.hoxBS <- c()
+da <- c()
+for(i in c(0:7)){
+  tmp <- hox.bound[rowSums(hox.bound[,-c(1,7,11)])>=i,]
+  tmp <- counts.open[row.names(tmp),]
+  # nPeaks.hoxBS <- c(nPeaks.hoxBS, nrow(tmp))
+  da <- c(da, sum(tmp$DAstages)/nrow(tmp)*100)
+}
+plot(da, pch=16, ylab="% of peaks DA across stages", xlab="minimum number of HOX binding sites", main="no HOXA1 or HOXB1", axes=FALSE)
 box(bty="l"); axis(2); axis(1, at=1:8, labels=0:7)
 ```
-
-**Note:** *for this enalysis I removed both Hoxa1 and Hoxb1 sites. If only one of the two factors is included the result is recapitulated, although the increase is not as linear, but more of a two step process: big jump in the proportion DA when peaks have at least 1 BS, another jump when they have more than 2 sites and increasing the number of sites doesn't increase the % much more (so from 20% to 27% to a stable ~31%). But if both are included, the picture is much less clear.*
 
 We know Hox genes are differentially expressed across development. This tells us that regions targeted by Hox genes, are also more likely to be dynamically opening/closing during development. Whether or not the presence of the Hox proteins has an effect on the chromtin dynamics of these regions is an open question. *They would need to be regulting a chromatin remodeller I suppose.*
 
 So what are these *Hox-bound* regions?
 
-Overall, 20% of open chromatin regions are promoters, an extra 50% are in gene bodies and the remaining 30% are intergenic. The percentages for the subset of peaks with increasing numbers of Hox BSs is similar, but with a slight depletion of promoter and genic peaks, and a slight increase in intergenic peaks. Also subtle but evident, is that the increase in intergenic peaks grows as the peaks are restricted to have more Hox BSs. 
+Overall, 20% of open chromatin regions are promoters, an extra 50% are in gene bodies and the remaining 30% are intergenic. The percentages for the subset of peaks with increasing numbers of HOX BSs is similar, but with a slight depletion of promoter and genic peaks, and a slight increase in intergenic peaks. Also subtle but evident, is that the increase in intergenic peaks grows as the peaks are restricted to have more HOX BSs. The increase is a bit higher if HOXA1 or HOXB1 are removed, reaching 40%.
 
 ```{r hox_features}
-class <- matrix(ncol=4, nrow=9)
-for(i in 0:8){
-  tmp <- hox.bound[rowSums(hox.bound[,-c(1,7,11)])>=i,]
+class <- matrix(ncol=4, nrow=8)
+for(i in 0:7){
+  tmp <- hox.bound[rowSums(hox.bound[,-c(1)])>=i,]
   tmp <- counts.open[row.names(tmp), c(1:10,305:310)]
   class[i+1,] <- c(nrow(tmp), sum(tmp$prom)/nrow(tmp)*100, 
                    sum(tmp$gene)/nrow(tmp)*100,
                    sum(tmp$inter)/nrow(tmp)*100)
 }
-cols <- rainbow(n=8)
+cols <- rainbow(n=7)
 plot(class[1,-1], type="b", ylim=c(12,60), lwd=2, axes=FALSE, xlab="", ylab="% of peaks")
 box(bty="l"); axis(2); axis(1, at=1:3, labels = c("promoter", "genic", "intergenic"))
+# abline(h=c(35,40), lty=2, col="grey")
 for(i in 2:nrow(class)){ points(class[i,-1], col=cols[i-1], type="b") }
-legend("topleft", legend = c(paste0("all (n=", nPeaks.hoxBS[1], ")"), paste0(">= ", 1:8, " Hox BSs (n=", nPeaks.hoxBS[-1], ")")), col=c("black", cols), pch=16, bty="n", cex=0.75)
+legend("topleft", legend = c(paste0("all (n=", nPeaks.hoxBS[1], ")"), paste0(">= ", 1:7, " Hox BSs (n=", nPeaks.hoxBS[-1], ")")), col=c("black", cols), pch=16, bty="n", cex=0.75)
 ```
 
 But there is no difference in the distance of these intergenic peaks to the nearest promoter, compared to all intergenic peaks.
 
 ```{r hox_distToNearest}
 hox.bound <- counts.open[,c("seqnames",names(tfs), "inter", "distanceToNearestProm")]
-hox.bound$nBS <- rowSums(hox.bound[,-c(1,7,11,20,21)])
-boxplot(log10(hox.bound[hox.bound$inter==1,]$distanceToNearestProm)~hox.bound[hox.bound$inter==1,]$nBS, xlab="number of Hox BSs", ylab=expression('log'[10]*' distance to nearest promoter'))
+hox.bound$nBS <- rowSums(hox.bound[,-c(1,20,21)])
+
+tmp <- hox.bound[hox.bound$inter==1,]
+
+plot(density(log10(tmp[tmp$nBS==0,]$distanceToNearestProm)), main="", xlab=expression('log'[10]*' distance to nearest promoter'))
+lines(density(log10(tmp[tmp$nBS>0,]$distanceToNearestProm)), lty=2)
+legend("topleft", legend = c("no HOX BSs", "with HOX BSs"), lty=c(1,2), cex=0.85)
 ```
 
 ##### In promoters
 
-From the `r class[2,1]` peaks with at least one Hox binding site, `r class[2,1]*class[2,2]/100` (`r class[2,2]`%) are in promoters. 
-```{r}
+From the `r class[2,1]` peaks with at least one HOX binding site, `r class[2,1]*class[2,2]/100` (`r class[2,2]`%) are in promoters. 
+
+```{r withHox_inProms}
 hox.bound.proms <- peaks.inPromoters[intersect(names(peaks.inPromoters), row.names(hox.bound[hox.bound$nBS>0,]))]
-hox.bound.proms <- as.character(proms[unique(subjectHits(findOverlaps(hox.bound.proms, proms)))]$gene) # 5671
+hox.bound.proms <- unique(as.character(proms[unique(subjectHits(findOverlaps(hox.bound.proms, proms)))]$gene)) # 6929
 ```
 
-However, only `r length(intersect(hox.bound.proms, rnaseq$gene))` of these correspond to expresed genes. 
+These correspond to `r length(hox.bound.proms)` different genes. However, only `r length(intersect(hox.bound.proms, rnaseq$gene))` of these are expressed. 
 
-We would expect these genes to be involved in specific functions, if they really are regulated by Hox factors. Gene set enrichment analysis of these `r length(intersect(hox.bound.proms, rnaseq$gene))` genes versus all the `r nrow(rnaseq)` genes expressed in somites returns a number of significant GO terms. 
+We would expect these genes to be involved in specific functions, if they really are regulated by HOX factors. Gene set enrichment analysis of these `r length(intersect(hox.bound.proms, rnaseq$gene))` genes versus all the `r nrow(rnaseq)` genes expressed in somites returns a number of significant GO terms. 
 
 ```{r go_hoxBound, message=FALSE}
 universe <- row.names(rnaseq)
@@ -307,22 +380,23 @@ go.hoxBound.test <- runTest(go.hoxBound, algorithm = "classic", statistic = "Fis
 go.hoxBound.res <- GenTable(go.hoxBound, Fisher.classic = go.hoxBound.test, topNodes = length(score(go.hoxBound.test)), numChar=60)
 go.hoxBound.res$Fisher.classic.adj <- p.adjust(go.hoxBound.res$Fisher.classic, "fdr")
 ```
-There are `r sum(go.hoxBound.res$Fisher.classic < 0.01)` terms with an enrichment p-value lower than 0.01. However, this drops to `r sum(go.hoxBound.res$Fisher.classic.adj < 0.05)` if we consider an FDR of 5%. Nonetheless, there are some interesting terms within the top 100:
+
+There are `r sum(go.hoxBound.res$Fisher.classic < 0.01)` terms with an enrichment p-value lower than 0.01. However, this drops to `r sum(go.hoxBound.res$Fisher.classic.adj < 0.05)` if we consider an FDR of 5%. Nonetheless, there are expected terms within the top 100, related to overall embryonic morphogenesis and patterning, as well as organogenesis:
 
 ```{r terms_hoxBound}
-go.hoxBound.res[c(1:6,8:9,13,19,28,48,53,62,79,90,94,96),-c(1,5)]
+go.hoxBound.res[c(1:4,8,9,11,16,18,20,21,24,28,29,31,38,43,45,65,80,97),-c(1,5)]
 ```
 
-This suggests that the promoters we have identified as possibly bound by Hox factors make biological sense; again, giving us confidence on the computational predictions of TFBSs.
+This suggests that the promoters we have identified as possibly bound by HOX factors make biological sense; again, giving us confidence on the computational predictions of TFBSs.
 
-Taking this further, we have identified a number of genes with their expression levels significantly correlated to that of Hox factors. We would expect that those that are correlated because they are regulated by Hox factors would have Hox BSs in their promoters. 
+Taking this further, we have identified a number of genes with their expression levels significantly correlated to that of Hox factors. We would expect that those that are correlated because they are regulated by Hox factors would have HOX BSs in their promoters. 
 
 ```{r hox_corrGenes}
 hox.corr.genes <- read.table(paste0(dir, "RNA-seq/results/HoxCorrelatedGenes.tab"), stringsAsFactors = FALSE)
 hox.corr.genes$HOXbound <- ifelse(hox.corr.genes$gene %in% intersect(hox.corr.genes$gene, hox.bound.proms), 1, 0)
 ```
 
-From `r length(unique(hox.corr.genes$gene2))` genes correlated with Hox expression, `r length(unique(hox.corr.genes[hox.corr.genes$HOXbound==1,]$gene2))` (`r round(length(unique(hox.corr.genes[hox.corr.genes$HOXbound==1,]$gene2))/length(unique(hox.corr.genes$gene2))*100,2)`%) have HOX binding sites in their promoters. The remaining could still be regulated by Hox factors via enhancers, but it is likely that a large fraction of these are not directly regulated by HOX genes, and instead are correlated becuase they are following the developmental progression of somites.
+From `r length(unique(hox.corr.genes$gene2))` genes correlated with Hox expression, `r length(unique(hox.corr.genes[hox.corr.genes$HOXbound==1,]$gene2))` (`r round(length(unique(hox.corr.genes[hox.corr.genes$HOXbound==1,]$gene2))/length(unique(hox.corr.genes$gene2))*100,2)`%) have HOX binding sites in their promoters. The remaining could still be regulated by HOX factors via enhancers, but it is likely that a large fraction of these are not directly regulated by HOX, and instead are correlated becuase they are following the developmental progression of somites.
 
 The correlated genes with HOX binding sites in their promoters are biased to positive correlations, much more than genes without HOX binding sites.
 
@@ -345,15 +419,15 @@ go.hoxCorr.res <- GenTable(go.hoxCorr, Fisher.classic = go.hoxCorr.test, topNode
 go.hoxCorr.res$Fisher.classic.adj <- p.adjust(go.hoxCorr.res$Fisher.classic, "fdr")
 ```
 
-In this case, `r sum(go.hoxCorr.res$Fisher.classic < 0.01)` terms have an enrichment p-value lower than 0.01 and `r sum(go.hoxCorr.res$Fisher.classic.adj < 0.05)` of these are significant under an FDR of 5%. Again, many interesting terms within the top 100:
+In this case, `r sum(go.hoxCorr.res$Fisher.classic < 0.01)` terms have an enrichment p-value lower than 0.01 and `r sum(go.hoxCorr.res$Fisher.classic.adj < 0.05)` of these are significant under an FDR of 5%. Again, many interesting terms within the significant ones:
 
 ```{r terms_hoxCorr}
-go.hoxCorr.res[c(6:8,16,24,26:28,36,40,47,71,73:76,80,95),-c(1,5)]
+go.hoxCorr.res[c(1,2,5,10,11:13,18,21,23,25,27,28,34,44,54,57,83,103,113,133,136),-c(1,5)]
 ```
 
-Terms related to muscle and bone processes are much more significant compared to the test with all genes with Hox sites in their pormoters. This suggests that by taking only correlated genes, we have identified a subset of genes involved in more specific functions.
+We now see terms related to muscle and bone development come up, the main derivatives of somites.This suggests that by taking only correlated genes, we have identified a subset of genes involved in more specific functions.
 
-As a control, we can test for enrichments in the set of correlated genes without Hox binding sites.
+As a control, we can test for enrichments in the set of correlated genes without HOX binding sites.
 
 ```{r go_hoxCorr_unbound, message=FALSE}
 sel <- hox.corr.genes[hox.corr.genes$HOXbound==0,]$gene2
@@ -369,15 +443,46 @@ go.ctrl.res$Fisher.classic.adj <- p.adjust(go.ctrl.res$Fisher.classic, "fdr")
 In this case, `r sum(go.ctrl.res$Fisher.classic < 0.01)` terms have an enrichment p-value lower than 0.01 but `r sum(go.ctrl.res$Fisher.classic.adj < 0.05)` of these are significant under an FDR of 5%. From the top 50 terms, enrichment is for more general terms, related to metabolism and general cellular functions.
 
 ```{r terms_hoxCorr}
-go.ctrl.res[c(2,6,10,22,25,28,31,35,36,44),-c(1,5)]
+go.ctrl.res[c(1,5,6,8,10,20,34,46,48),-c(1,5)]
 ```
 
-Thus, by selecting only correlated genes that have Hox binding in their promoters we have certainly captured a set of biological interest. It is related to the functions of all genes with Hox binding in their promters, but we have the added information of correlated expression, suggesting more plausible regulation.
+Thus, by selecting only correlated genes that have HOX binding in their promoters we have certainly captured a set of biological interest. It is related to the functions of all genes with HOX binding in their promters, but we have the added information of correlated expression, suggesting more plausible regulation.
+
+```{r Gostats, message=FALSE}
+## correlated genes with Hox binding
+sel <- hox.corr.genes[hox.corr.genes$HOXbound==1,]$gene2
+
+## Hox genes
+hox <- grep("^Hox", rnaseq$gene, value = TRUE)
+hox <- hox[-c(6,12,14,22,28,33)]
+hox <- hox[order(hox)]
+hox <- hox[c(1,12,30,5,14,6,15,35,7,16,25,8,17,26,9,18,27,10,19,20,28,36,11,21,29,37,2,22,31,3,23,32,33,4,13,24,34)]
+
+## for each significant GO term, check wht Hox genes are correlated and whether positive/negative
+go.hoxCorr.stats <- matrix(0, nrow = sum(go.hoxCorr.res$Fisher.classic.adj<0.05), ncol=length(hox)+2)
+row.names(go.hoxCorr.stats) <- go.hoxCorr.res[go.hoxCorr.res$Fisher.classic.adj<0.05,1]
+colnames(go.hoxCorr.stats) <- c(hox, "pos", "neg")
+for(term in go.hoxCorr.res[go.hoxCorr.res$Fisher.classic.adj<0.05,1]){
+  g <- intersect(genesInTerm(go.hoxCorr, term)[[1]], sel) # genes in category
+  tmp <- table(rnaseq[hox.corr.genes[hox.corr.genes$gene2 %in% g,]$gene1,1])
+  go.hoxCorr.stats[term, names(tmp)] <- tmp
+  go.hoxCorr.stats[term, c('pos', 'neg')] <- as.numeric(table(hox.corr.genes[hox.corr.genes$gene2 %in% g,]$rho<0))
+}
+go.hoxCorr.stats <- as.data.frame(go.hoxCorr.stats)
+
+go.hoxCorr.stats$corrPos <- go.hoxCorr.stats$pos / (go.hoxCorr.stats$pos + go.hoxCorr.stats$neg)
+ggplot(go.hoxCorr.stats, aes(1, corrPos)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.4) + geom_hline(yintercept = 0.5, lty=2, col="red") + xlab("") + ylab("% of genes with positive correlation to Hox")
+
+tmp <- t(apply(go.hoxCorr.stats[,1:37], 1, function(x) x/max(x)))
+heatmap.2(tmp, trace = "none", col=rev(brewer.pal(n=10, "RdYlBu")))
+```
+
+
 
 
 ```{r}
-selected <- c(6:8,16,24,26:28,36,40,47,71,73:76,80,95)
-go.hox <- matrix(ncol=18,nrow = length(selected))
+selected <- c(1,2,5,10,11:13,18,21,23,25,27,28,34,44,54,57,83,103,113,133,136)
+go.hox <- matrix(ncol=18, nrow = length(selected))
 j=1
 for(i in selected){
   genes <- proms[proms$ID %in% intersect(genesInTerm(go.hoxCorr, go.hoxCorr.res[i,1])[[1]], hox.corr.genes[hox.corr.genes$HOXbound==1,]$gene2)]
@@ -388,9 +493,13 @@ for(i in selected){
 }
 colnames(go.hox) <- colnames(tmp)[2:19]
 row.names(go.hox) <- go.hoxCorr.res[selected,2]
-go.hox
 
-heatmap.2(go.hox, trace = "none")
+## normalise for total motif count
+go.hox.norm <- t(t(go.hox)/colSums(hox.bound[,2:19]))
+
+tmp <- t(apply(go.hox.norm, 1, function(x) x/max(x)))
+tmp <- tmp[,c(6,10,7,11,14,8,12,13,15,9,18,4,16,5,17,1:3)]
+heatmap.2(go.hox.norm, trace = "none", col=rev(brewer.pal(n=10, "RdYlBu")), Colv = TRUE)
 
 ```
 
