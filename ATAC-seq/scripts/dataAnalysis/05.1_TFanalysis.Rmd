@@ -448,7 +448,9 @@ go.ctrl.res[c(1,5,6,8,10,20,34,46,48),-c(1,5)]
 
 Thus, by selecting only correlated genes that have HOX binding in their promoters we have certainly captured a set of biological interest. It is related to the functions of all genes with HOX binding in their promters, but we have the added information of correlated expression, suggesting more plausible regulation.
 
-```{r Gostats, message=FALSE}
+Importantly, the genes involved in these enriched terms tend to be positively correlated to Hox expression; most terms have around 75% of their genes in positive correlation pairs, and the few terms with more negative than positive correlations have very few gene pairs.
+
+```{r GOstats, message=FALSE, fig.width=10}
 ## correlated genes with Hox binding
 sel <- hox.corr.genes[hox.corr.genes$HOXbound==1,]$gene2
 
@@ -469,18 +471,24 @@ for(term in go.hoxCorr.res[go.hoxCorr.res$Fisher.classic.adj<0.05,1]){
   go.hoxCorr.stats[term, c('pos', 'neg')] <- as.numeric(table(hox.corr.genes[hox.corr.genes$gene2 %in% g,]$rho<0))
 }
 go.hoxCorr.stats <- as.data.frame(go.hoxCorr.stats)
-
 go.hoxCorr.stats$corrPos <- go.hoxCorr.stats$pos / (go.hoxCorr.stats$pos + go.hoxCorr.stats$neg)
-ggplot(go.hoxCorr.stats, aes(1, corrPos)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.4) + geom_hline(yintercept = 0.5, lty=2, col="red") + xlab("") + ylab("% of genes with positive correlation to Hox")
+go.hoxCorr.stats$term <- go.hoxCorr.res[match(row.names(go.hoxCorr.stats), go.hoxCorr.res$GO.ID),2]
 
-tmp <- t(apply(go.hoxCorr.stats[,1:37], 1, function(x) x/max(x)))
-heatmap.2(tmp, trace = "none", col=rev(brewer.pal(n=10, "RdYlBu")))
+plots <- list()
+plots[[1]] <- ggplot(go.hoxCorr.stats, aes(1, corrPos)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.4) + geom_hline(yintercept = 0.5, lty=2, col="red") + xlab("") + ylab("% of genes with positive correlation to Hox") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+plots[[2]] <- ggplot(go.hoxCorr.stats, aes(pos+neg, corrPos, label = term)) + geom_point() + ylab("") + xlab("total correlated pairs in category") + geom_hline(yintercept = 0.5, lty=2, col="red") + geom_text_repel(data = rbind(go.hoxCorr.stats[c(12,21,57,54,62,23,83,113,120,34,134,136),], subset(go.hoxCorr.stats, go.hoxCorr.stats$corrPos < 0.5)), nudge_x = 70, direction = "y", angle = 0, segment.size = 0.25)
+multiplot(plotlist = plots, cols=2)
 ```
 
+We can also check what specific Hox genes are involved in the correlating pairs. Surprisingly, Hoxa1 dominates the correlataions and there seems to be a bias towards certain factors. We should revisit the correlation analysis to check if this is something aobut the method.
 
+```{r nHoxcorr}
+plot(colSums(go.hoxCorr.stats[,1:37]))
+```
 
+I have also check if particular GO terms have binding from specific HOX factors. Even though this is the case for some terms, this is strongly biased by the total number of TFBS per HOX, so it is difficult to assess significance. 
 
-```{r}
+```{r nHOXterm, eval=FALSE}
 selected <- c(1,2,5,10,11:13,18,21,23,25,27,28,34,44,54,57,83,103,113,133,136)
 go.hox <- matrix(ncol=18, nrow = length(selected))
 j=1
@@ -518,7 +526,6 @@ heatmap.2(go.hox.norm, trace = "none", col=rev(brewer.pal(n=10, "RdYlBu")), Colv
 #### HOX co-factors
 
 ```{r}
-
 tf.expr[substr(motif.ann[grep("homeo domain", motif.ann$TF.family),]$Model, 1, nchar(motif.ann[grep("homeo domain", motif.ann$TF.family),]$Model)-14)]
 ```
 
