@@ -91,15 +91,15 @@ Now we want to identify interesting candidates important in the regulation of so
 ## HOCOMOCO v10 PWMs used to scan the mm10 genome with PWMscan, default parameters.
 ## Taken from diffTF [https://www.embl.de/download/zaugg/diffTF/TFBS/TFBS_mm10_PWMScan_HOCOMOCOv10.tar.gz]
 ## removed ENOA which has been retracted in HOCOMOCOv11
-tfbs <- list()
-files <- list.files(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10/"))
-for(file in files){
-  tf <- substr(file, 1, nchar(file)-9)
-  tfbs[[tf]] <- read.table(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10/", file))
-  tfbs[[tf]] <- GRanges(tfbs[[tf]]$V1, IRanges(tfbs[[tf]]$V2, tfbs[[tf]]$V3), strand=tfbs[[tf]]$V6, motif=tfbs[[tf]]$V4, score=tfbs[[tf]]$V5)
-}
-saveRDS(tfbs, paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10.Rds"))
-# tfbs <- readRDS(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10.Rds"))
+# tfbs <- list()
+# files <- list.files(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10/"))
+# for(file in files){
+#   tf <- substr(file, 1, nchar(file)-9)
+#   tfbs[[tf]] <- read.table(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10/", file))
+#   tfbs[[tf]] <- GRanges(tfbs[[tf]]$V1, IRanges(tfbs[[tf]]$V2, tfbs[[tf]]$V3), strand=tfbs[[tf]]$V6, motif=tfbs[[tf]]$V4, score=tfbs[[tf]]$V5)
+# }
+# saveRDS(tfbs, paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10.Rds"))
+tfbs <- readRDS(paste0(dir, "ATAC-seq/motifs/PWMScan_HOCOMOCOv10_mm10.Rds"))
 ```
 
 We will use the PWMs from HOCOMOCO, a project based on ChIP-seq data that should provide high-quality motifs. Each PWM is used to scan the mouse refence genome and predict TF binding sites. We read the coordinates of such putative TFBSs for all `r length(tfbs)` TFs available.
@@ -148,7 +148,7 @@ names(tf.expr) <- names(motif.gene)
 plot(tf.expr, log10(unlist(lapply(tfbs.open, length))), bty="l", xlab=expression('log'[2]*' normalised expression'), ylab=expression('log'[10]*' total binding sites'))
 ```
 
-For each peak, we can create a matrix with the number of binding sites for each TF that is expressed in the somites. That is `r length(tf.expr[!is.na(tf.expr)])` different TFs across `r length(pepeakSet)` peaks, and thus, the analysis now restricts to expressed TFs and open binding sites.
+For each peak, we can create a matrix with the number of binding sites for each TF that is expressed in the somites. That is `r length(tf.expr[!is.na(tf.expr)])` different TFs across `r length(peakSet)` peaks, and thus, the analysis now restricts to expressed TFs and open binding sites.
 
 Peaks have a median of 24 predicted TFBSs, with the IQR between 12 and 42 TFBS.
 
@@ -164,7 +164,7 @@ row.names(counts.open) <- paste0(counts.open$seqnames, ":", counts.open$start, "
 counts.open$totalTFBS <- rowSums(counts.open[,-c(1:10)])
 
 ggplot(counts.open, aes(1, log10(totalTFBS+1))) + geom_violin() + geom_boxplot(width=0.1) + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) + ylab(expression('log'[10]*' total TFBS + 1'))
-nTFs <- table(df$count)
+nTFs <- table(counts.open$totalTFBS)
 ```
 
 `r unname(nTFs['0'])` peaks have no predicted TFBSs and `r sum(nTFs[as.numeric(names(nTFs))>100])` peaks have more than 100 predicted binding sites.
@@ -251,7 +251,7 @@ box(bty="l"); axis(1); axis(2, at=0:4, labels = c(0,10,100,"1,000","10,000"), la
 
 In the plot below, if we remove HOXB1 the numbers pretty much half, indicating that the effect of HOXA1/B1 is large, given their much higher number of predicted sites.
 
-```{r hox, fig.width=10}
+```{r hox2, fig.width=10}
 plots <- list()
 plots[[1]] <- ggplot(hox.bound, aes(1:nrow(hox.bound), rowSums(hox.bound[,-1]), colour=seqnames)) + geom_point() + scale_color_manual(values = rep(c("black", "grey"), 10)) + theme(legend.position = "none", axis.ticks.x = element_blank(), axis.text.x = element_blank()) + ylab("number of HOX binding sites per peak") + xlab("") + ylim(0,45) + ggtitle("all HOX TFs")
 plots[[2]] <- ggplot(hox.bound, aes(1:nrow(hox.bound), rowSums(hox.bound[,-c(1,11)]), colour=seqnames)) + geom_point() + scale_color_manual(values = rep(c("black", "grey"), 10)) + theme(legend.position = "none", axis.ticks.x = element_blank(), axis.text.x = element_blank()) + ylab("number of HOX binding sites per peak") + xlab("") + ylim(0,45) + ggtitle("without HOXB1")
@@ -358,7 +358,7 @@ legend("topleft", legend = c("no HOX BSs", "with HOX BSs"), lty=c(1,2), cex=0.85
 
 ##### In promoters
 
-From the `r class[2,1]` peaks with at least one HOX binding site, `r class[2,1]*class[2,2]/100` (`r class[2,2]`%) are in promoters. 
+From the `r as.numeric(class[2,1])` peaks with at least one HOX binding site, `r class[2,1]*class[2,2]/100` (`r round(class[2,2],2)`%) are in promoters. 
 
 ```{r withHox_inProms}
 hox.bound.proms <- peaks.inPromoters[intersect(names(peaks.inPromoters), row.names(hox.bound[hox.bound$nBS>0,]))]
@@ -442,7 +442,7 @@ go.ctrl.res$Fisher.classic.adj <- p.adjust(go.ctrl.res$Fisher.classic, "fdr")
 
 In this case, `r sum(go.ctrl.res$Fisher.classic < 0.01)` terms have an enrichment p-value lower than 0.01 but `r sum(go.ctrl.res$Fisher.classic.adj < 0.05)` of these are significant under an FDR of 5%. From the top 50 terms, enrichment is for more general terms, related to metabolism and general cellular functions.
 
-```{r terms_hoxCorr}
+```{r terms_hoxCorr_ctrl}
 go.ctrl.res[c(1,5,6,8,10,20,34,46,48),-c(1,5)]
 ```
 
@@ -476,14 +476,14 @@ go.hoxCorr.stats$term <- go.hoxCorr.res[match(row.names(go.hoxCorr.stats), go.ho
 
 plots <- list()
 plots[[1]] <- ggplot(go.hoxCorr.stats, aes(1, corrPos)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.4) + geom_hline(yintercept = 0.5, lty=2, col="red") + xlab("") + ylab("% of genes with positive correlation to Hox") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
-plots[[2]] <- ggplot(go.hoxCorr.stats, aes(pos+neg, corrPos, label = term)) + geom_point() + ylab("") + xlab("total correlated pairs in category") + geom_hline(yintercept = 0.5, lty=2, col="red") + geom_text_repel(data = rbind(go.hoxCorr.stats[c(12,21,57,54,62,23,83,113,120,34,134,136),], subset(go.hoxCorr.stats, go.hoxCorr.stats$corrPos < 0.5)), nudge_x = 70, direction = "y", angle = 0, segment.size = 0.25)
+plots[[2]] <- ggplot(go.hoxCorr.stats, aes(pos+neg, corrPos, label = term)) + geom_point() + ylab("") + xlab("total correlated pairs in category") + geom_hline(yintercept = 0.5, lty=2, col="red") + geom_text_repel(data = rbind(go.hoxCorr.stats[c(34,136,54,23),], subset(go.hoxCorr.stats, go.hoxCorr.stats$corrPos < 0.5)), nudge_x = 70, direction = "y", angle = 0, segment.size = 0.25)
 multiplot(plotlist = plots, cols=2)
 ```
 
 We can also check what specific Hox genes are involved in the correlating pairs. Surprisingly, Hoxa1 dominates the correlataions and there seems to be a bias towards certain factors. We should revisit the correlation analysis to check if this is something aobut the method.
 
 ```{r nHoxcorr}
-plot(colSums(go.hoxCorr.stats[,1:37]))
+colSums(go.hoxCorr.stats[,1:37])
 ```
 
 I have also check if particular GO terms have binding from specific HOX factors. Even though this is the case for some terms, this is strongly biased by the total number of TFBS per HOX, so it is difficult to assess significance. 
@@ -508,7 +508,6 @@ go.hox.norm <- t(t(go.hox)/colSums(hox.bound[,2:19]))
 tmp <- t(apply(go.hox.norm, 1, function(x) x/max(x)))
 tmp <- tmp[,c(6,10,7,11,14,8,12,13,15,9,18,4,16,5,17,1:3)]
 heatmap.2(go.hox.norm, trace = "none", col=rev(brewer.pal(n=10, "RdYlBu")), Colv = TRUE)
-
 ```
 
 
