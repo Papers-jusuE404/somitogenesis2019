@@ -1,0 +1,290 @@
+---
+title: "RNA-seq data QC and normalisation"
+date: "17 May 2019"
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(edgeR)
+library(ggplot2)
+library(RColorBrewer)
+library(DESeq2)
+
+dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+
+#### FUNCTIONS
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols), byrow = TRUE)
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+We have sequenced 80 RNA-seq libraries from individual mouse somites, generally matched to the ATAC-seq samples; in some cases, library construction was only successful for one technique giving rise to some singletons, but mostly, samples contain both data types. Additionally, we included 12 samples of *adjacent* tissue as controls.
+
+Samples represent the three most recently segmented somites per embryo, across six different stages; stages are named based on the total number of somites in the embryo. We have 3 to 6 biological replicates per stage.
+
+```{r metadata}
+meta <- read.table(paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+table(meta$somite, meta$stage)[-1,]
+```
+
+We have mapped the data to the mouse reference genome (`mm10`) and quantified expression by counting the number of aligned fragments per gene (using Ensembl annotation, version 96). 
+
+### Quality control
+
+Samples were sequenced at a median depth of nearly 17.5 million fragments; 75% of the data have library sizes between 14.9 and 23.2 million fragments.
+
+```{r depth, message=FALSE, fig.width=4, fig.height=4}
+## data
+data <- read.table(paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"), stringsAsFactors = FALSE)
+
+## match column order in count matrix and metadata annotation
+meta <- meta[match(colnames(data)[-1], meta$sample),]
+stopifnot(identical(colnames(data)[-1], meta$sample))
+
+## mapping statistics
+mapping.stats <- read.table(paste0(dir, "RNA-seq/data/mappingStatistics.tsv"), stringsAsFactors = FALSE)
+
+stopifnot(identical(colnames(data)[-1], row.names(mapping.stats)))
+mapping.stats$uniquelyMapped <- colSums(data[,-1])
+mapping.stats$libSize <- rowSums(mapping.stats)
+# summary(mapping.stats$libSize)
+
+ggplot(mapping.stats, aes(1, libSize/1e6)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5) + ylab("library size (million fragments)") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+```
+
+And around 12.8 million of these fragments are uniquely mapped and within exons (interquartile range = 10.5 - 16.4 million)
+
+```{r inExons, message=FALSE, fig.width=4, fig.height=4}
+# summary(mapping.stats$uniquelyMapped)
+ggplot(mapping.stats, aes(1, uniquelyMapped/1e6)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5) + ylab("total fragments uniquely mapped to exons (millions)") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+```
+
+One sample, `r row.names(mapping.stats[which.min(mapping.stats$libSize),])`, has a very small library with only `r mapping.stats[which.min(mapping.stats$libSize),'libSize']` total fragments and will be removed from downstream analyses. The next smallest library has 5.3 million fragments which might or might not be enough for a representative transcriptome.
+
+In general, most samples show good mapping statistics with low proportion of unmapped and multimapped fragments, and of fragments mapped to non-exonic regions. There are a few outliers that show larger numbers, but since these have large libraries (over 20 million), the proportion of uniquely mapped fragments is still large.
+
+```{r qc, message=FALSE, fig.width=7, fig.height=6}
+plots <- list()
+plots[[1]] <- ggplot(mapping.stats, aes(1, N_unmapped/libSize*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_unmapped/libSize*100, col=mapping.stats$libSize/1e6), width = 0.05) + ylab("% unmapped") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+plots[[2]] <- ggplot(mapping.stats, aes(1, N_multimapping/libSize*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_multimapping/libSize*100, col=mapping.stats$libSize/1e6), width = 0.05) + ylab("% multimapped") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+plots[[3]] <- ggplot(mapping.stats, aes(1, N_noFeature/libSize*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_noFeature/libSize*100, col=mapping.stats$libSize/1e6), width = 0.05) + ylab("% outside exons") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+plots[[4]] <- ggplot(mapping.stats, aes(1, N_ambiguous/libSize*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_ambiguous/libSize*100, col=mapping.stats$libSize/1e6), width = 0.05) + ylab("% ambiguous") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+multiplot(plotlist = plots, cols=2)
+```
+
+The two samples with the smallest libraries have good stats, with only ~7% of fragments unmapped, multimapped, outside exons and ambiguous. That leaves around 70% of fragments uniquely mapped and thus suggests the libraries are of good quality, but sequenced to insufficient depth.
+
+Samples generally have around 22 thousand genes expressed, with a tight IQR between 21.1 and 23 thousand. The sample with the very small library is a clear outlier and needs to be removed. The second smallest also deviates a bit from the rest of the dataset, but has 18,565 detected genes, compared to 19,549 of the next sample.
+
+```{r numGenes, fig.width=4, fig.height=4}
+mapping.stats$nGenes <- apply(data[,-1], 2, function(x) sum(x>0))
+# summary(mapping.stats$nGenes)
+
+ggplot(mapping.stats, aes(1, nGenes/1e3)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,nGenes/1e3, col=mapping.stats$libSize/1e6), width = 0.02) + ylab("total genes detected (thousands)") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+```
+
+Given that the second smallest library shows a similar number of detected genes and good mapping statistics (reflecting good sample quality), it is likely that its data is useful, specially for genes expressed at moderate to high levels. Therefore, we will only remove the sample that almost failed sequencing and proceed with all others.
+
+```{r badQual}
+bad.qual <- row.names(mapping.stats[which.min(mapping.stats$libSize),])
+data <- data[,-which(colnames(data) == bad.qual)]
+meta$QC <- ifelse(meta$sample == bad.qual, 0, 1)
+```
+
+### Normalisation
+
+The first thing to account for is library size. Before estimating size factors, we filter very lowly expressed genes, since we don't have enough statistical power to compare their expression across conditions, and can make the size factor estimation unstable.
+
+We retain around 40% of the annotated genes (46% of detected genes).
+
+```{r filter}
+## our factor of interest is the combination of stage and somite. 
+# create a variable for it
+meta$group <- paste(meta$stage, meta$somite, sep=".")
+
+## create an edgeR object
+y <- DGEList(counts=data[,-1], samples = meta[meta$QC==1,], genes = data[,1], group = meta[meta$QC==1,]$group)
+
+## filter low abundance genes
+means <- aveLogCPM(y)
+keep <- filterByExpr(y)
+
+plot(density(means[keep]), lwd=2, xlab="average log counts-per-million", main="", bty="l", ylim=c(0,1))
+lines(density(means[-keep]), lty=2, lwd=2)
+legend("topright", legend = c("kept", "filtered"), lty=c(1,2), lwd=2)
+
+summary(keep)
+y <- y[keep, , keep.lib.sizes=FALSE]
+```
+
+With this reduced dataset of `r nrow(y$counts)` genes we calculate size factors to normalise the data. Size factors normalise for both library size and composition biases.
+
+The method successfully standardises the libraries. The sample with second smallest library size and slightly fewer detected genes is highlighted in red; the normalisation seems to successfully bring it to the overall dataset distribution, so it should be ok to keep.
+
+```{r norm, fig.width=10}
+## normalisation
+y <- calcNormFactors(y)
+
+dataNorm <- cpm(y, log=TRUE, prior.count = 1)
+
+col <- c(rep("black",18), "red", rep("black",69)) # highlight the sample with small library size
+par(mfrow=c(1,2))
+boxplot(log2(data[keep,-1]+1), main="RAW", ylab=expression('log'[2]*' counts + 1'), axes=FALSE, border=col); box(bty="l"); axis(2, las=2)
+boxplot(dataNorm, main="NORMALISED", ylab=expression('log'[2]*' counts-per-million + 1'), axes=FALSE, border=col); box(bty="l"); axis(2, las=2)
+```
+
+### Exploratory analysis
+
+With the normalised data, we can explore the general features of the dataset. Firstly, we compute a PCA on the thousand most variable genes to check if we can detect our biological effect of interest and any potential confounders.
+
+The first two PCs separate samples by their stage, suggesting there are fairly big differences in their transcriptomes. In contrast, there is no obvious grouping by somite, suggesting differences are much more subtle and perhaps captured in later PCs; but the PSM samples separate fairly well.
+
+There is also evident grouping based on the date of collection. This is a technical batch effect that we need to account for.
+
+```{r pca, fig.width=12, fig.height=4}
+vars <- rowVars(dataNorm)
+names(vars) <- row.names(dataNorm)
+pca <- prcomp(t(dataNorm[names(vars[order(vars, decreasing = TRUE)])[1:1000],]))
+
+eigs <- pca$sdev^2
+prop.var <- eigs / sum(eigs)
+# plot(prop.var, ylab="proportion of variance explained", xlab="PC", bty="l")
+
+df <- as.data.frame(pca$x)
+plots <- list()
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$QC==1,]$stage))) + labs(col="stage") + xlab(paste("PC1 - ", round(prop.var[1]*100,2), "% var explained")) + ylab(paste("PC2 - ", round(prop.var[2]*100,2), "% var explained"))
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$QC==1,]$somite))) + labs(col="somite") + xlab(paste("PC1 - ", round(prop.var[1]*100,2), "% var explained")) + ylab(paste("PC2 - ", round(prop.var[2]*100,2), "% var explained"))
+plots[[3]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$QC==1,]$date))) + labs(col="batch") + xlab(paste("PC1 - ", round(prop.var[1]*100,2), "% var explained")) + ylab(paste("PC2 - ", round(prop.var[2]*100,2), "% var explained"))
+multiplot(plotlist = plots, cols=3)
+```
+
+Since the PSM samples are grouping better by their identity than their technical batch, it suggests that there were no big issues with any of the batches. That is, there is no anomalous behaviour of a group of samples based on their batch. Thus, we can remove the PSM samples and focus the analysis on the somite samples only.
+
+### Somite dataset only
+
+We remove all the PSM samples.
+
+```{r removePSM}
+psm <- meta[meta$somite=="PSM",]$sample
+data <- data[,-which(colnames(data) %in% psm)]
+
+meta$use <- ifelse(meta$sample %in% psm, 0, ifelse(meta$QC == 0, 0, 1))
+```
+
+We recalculate the genes to filter out, with similar numbers as before.
+
+```{r filter_noPSM}
+y <- DGEList(counts=data[,-1], samples = meta[meta$use==1,], genes = data[,1], group = meta[meta$use==1,]$group)
+
+## filter low abundance genes
+means <- aveLogCPM(y)
+keep <- filterByExpr(y)
+
+# plot(density(means[keep]), lwd=2, xlab="average log counts-per-million", main="", bty="l", ylim=c(0,1))
+# lines(density(means[-keep]), lty=2, lwd=2)
+# legend("topright", legend = c("kept", "filtered"), lty=c(1,2), lwd=2)
+
+summary(keep)
+y <- y[keep, , keep.lib.sizes=FALSE]
+```
+ 
+And the normalisation is again successful.
+ 
+```{r norm2, fig.width=10}
+## normalisation
+y <- calcNormFactors(y)
+
+dataNorm <- cpm(y, log=TRUE, prior.count = 1)
+
+col <- c(rep("black",18), "red", rep("black",69)) # highlight the sample with small library size
+par(mfrow=c(1,2))
+boxplot(log2(data[keep,-1]+1), main="RAW", ylab=expression('log'[2]*' counts + 1'), axes=FALSE, border=col); box(bty="l"); axis(2, las=2)
+boxplot(dataNorm, main="NORMALISED", ylab=expression('log'[2]*' counts-per-million + 1'), axes=FALSE, border=col); box(bty="l"); axis(2, las=2)
+```
+
+In a PCA we observe a similar separation by stage within the first two PCs, and clear grouping by collection batch.
+
+```{r pca2, fig.width=12, fig.height=4}
+vars <- rowVars(dataNorm)
+names(vars) <- row.names(dataNorm)
+pca <- prcomp(t(dataNorm[names(vars[order(vars, decreasing = TRUE)])[1:1000],]))
+
+eigs <- pca$sdev^2
+prop.var <- eigs / sum(eigs)
+# plot(prop.var, ylab="proportion of variance explained", xlab="PC", bty="l")
+
+df <- as.data.frame(pca$x)
+plots <- list()
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$stage))) + labs(col="stage") + xlab(paste("PC1 - ", round(prop.var[1]*100,2), "% var explained")) + ylab(paste("PC2 - ", round(prop.var[2]*100,2), "% var explained"))
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$somite))) + labs(col="somite") + xlab(paste("PC1 - ", round(prop.var[1]*100,2), "% var explained")) + ylab(paste("PC2 - ", round(prop.var[2]*100,2), "% var explained"))
+plots[[3]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$date))) + labs(col="batch") + xlab(paste("PC1 - ", round(prop.var[1]*100,2), "% var explained")) + ylab(paste("PC2 - ", round(prop.var[2]*100,2), "% var explained"))
+multiplot(plotlist = plots, cols=3)
+```
+
+The first PC is dominated by collection date, whereas stage gets pushed to PC2. Thus, we have strong batch effects from sample processing that need to be corrected.
+
+However, the experimental design is confounded with batch. We have ten collection dates, and the six stages split into two blocks, each spanning five dates. Thus, blocking through the design matrix will not be possible.
+
+For now, let's save the results.
+
+```{r save}
+## metadata with the additional info of which samples are used in downstream analyses
+write.table(meta, paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
+
+## save the normalised counts, but first add gene names
+dataNorm <- cbind(data[match(row.names(dataNorm), row.names(data)),1], as.data.frame(dataNorm))
+colnames(dataNorm)[1] <- "gene"
+write.table(dataNorm, paste0(dir, "RNA-seq/data/geneCounts.NORM_logCPM.tsv"), quote = FALSE, sep="\t")
+```
+
+
+
+
+```{r info}
+sessionInfo()
+```
+
