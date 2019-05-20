@@ -279,6 +279,9 @@ write.table(meta, paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), quote = FALSE
 dataNorm <- cbind(data[match(row.names(dataNorm), row.names(data)),1], as.data.frame(dataNorm))
 colnames(dataNorm)[1] <- "gene"
 write.table(dataNorm, paste0(dir, "RNA-seq/data/geneCounts.NORM_logCPM.tsv"), quote = FALSE, sep="\t")
+
+## also save edgeR object
+saveRDS(y, paste0(dir, "RNA-seq/results/01_edgeRobject.Rds"))
 ```
 
 
