@@ -153,7 +153,7 @@ y <- DGEList(counts=data[,-1], samples = meta[meta$QC==1,], genes = data[,1], gr
 means <- aveLogCPM(y)
 keep <- filterByExpr(y)
 
-plot(density(means[keep]), lwd=2, xlab="average log counts-per-million", main="", bty="l", ylim=c(0,1))
+plot(density(means[keep]), lwd=2, xlab="average log counts-per-million", main="", bty="l", ylim=c(0,1), xlim=c(-3,15))
 lines(density(means[-keep]), lty=2, lwd=2)
 legend("topright", legend = c("kept", "filtered"), lty=c(1,2), lwd=2)
 
@@ -224,7 +224,7 @@ y <- DGEList(counts=data[,-1], samples = meta[meta$use==1,], genes = data[,1], g
 means <- aveLogCPM(y)
 keep <- filterByExpr(y)
 
-# plot(density(means[keep]), lwd=2, xlab="average log counts-per-million", main="", bty="l", ylim=c(0,1))
+# plot(density(means[keep]), lwd=2, xlab="average log counts-per-million", main="", bty="l", ylim=c(0,1), xlim=c(-3,15))
 # lines(density(means[-keep]), lty=2, lwd=2)
 # legend("topright", legend = c("kept", "filtered"), lty=c(1,2), lwd=2)
 
