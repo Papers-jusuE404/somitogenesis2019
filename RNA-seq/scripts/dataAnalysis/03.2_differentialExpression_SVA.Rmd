@@ -1,0 +1,475 @@
+---
+title: "Differential expression analysis of mouse somites - SVA"
+date: "28 May 2019"
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(edgeR)
+library(limma)
+library(ggplot2)
+library(ggpubr)
+library(RColorBrewer)
+library(gplots)
+library(sva)
+library(topGO)
+
+dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+
+palette(c(brewer.pal(n=8, "Set2"), brewer.pal(n=9, "Set1")))
+
+#### FUNCTIONS
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols), byrow = TRUE)
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+
+```{r data}
+meta <- read.table(paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+meta <- meta[meta$use==1,]
+
+data <- read.table(paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"))
+y <- readRDS(paste0(dir, "RNA-seq/results/01_edgeRobject.Rds"))
+```
+
+We have RNA-seq data from 76 single mouse somites, spanning six different developmental stages. Data has been normalised for sequencing depth and composition biases (using `edgeR`). We noted strong batch effects from sample collection date. To perform differential expression correctly, we need to control for these technical effects. However, since the experimental design is partially confounded with the collection date, we needed to use alternative methods to identify the technical effects, instead of simply blocking on batch. We have tried two different approaches:
+
+- Surrogate variable analysis: identifies 11 surrogate variables, the first strongly correlated with collection date.
+- PCA on the residuals of the model containing the somite-stage information.
+
+Both approaches result in successful removal of the collection date effect, and enhance the separation by stage and somite. So we can use these to control for technical effects and, at the same time, enhance our statistical power to determine differences across somites and stages.
+
+As a baseline, we have performed the differential analysis without any correction. Now, let's see how the results change when using the identified surrogate variables to control for the technical effects.
+
+### Differential expression analysis - SVA approach
+
+We can test for differences between the somite trios and between stages.
+
+We use `edgeR` to perform the differential testing. We first estimate the dispersion and fit the design containing the interaction of somite and stage.
+
+```{r edger, fig.width=10}
+## design
+meta$group <- as.factor(meta$group)
+design <- model.matrix(~0+group, meta)
+colnames(design) <- paste0("stage",levels(meta$group))
+
+# add SVs
+svs <- read.table(paste0(dir, "RNA-seq/results/02_svs.tab"))
+design <- cbind(design, svs)
+colnames(design)[-c(1:length(levels(meta$group)))] <- paste0("sv", 1:11)
+
+## dispersion
+y <- estimateDisp(y, design, robust = TRUE)
+par(mfrow=c(1,2))
+plotBCV(y)
+
+## fit model
+fit <- glmQLFit(y, design, robust=TRUE)
+plotQLDisp(fit)
+# summary(fit$df.prior)
+
+saveRDS(y, file=paste0(dir, "RNA-seq/results/03.2_edgeRobject_sva.Rds"))
+```
+
+#### Differences across somite trios
+
+We test whether gene expression changes as somites differentiate, by testing for differences between somite I, II and III. We have at least 3 replicates for each stage-somite combination, so we should have decent power.
+
+```{r reps}
+table(meta$stage, meta$somite)
+```
+
+The changes could be conserved across development, or stage specific.
+
+First, we test on a per-stage basis. And we test all three pairwise comparisons from each stage at once with an anova-like test, to avoid over testing. Thus, anything with an adjusted p-value lower than 0.05 is DE between at least a pair of somites. For all stages there are few genes that reach significance, but we recover substantially more compared to not controlling for technical variation.
+
+```{r somiteTrios_perStage}
+my.contrasts <- makeContrasts(stage8.IIvsI=stage8.SII-stage8.SI, stage8.IIIvsI=stage8.SIII-stage8.SI, 
+                              stage8.IIIvsII=stage8.SIII-stage8.SII, 
+                              stage18.IIvsI=stage18.SII-stage18.SI, stage18.IIIvsI=stage18.SIII-stage18.SI, 
+                              stage18.IIIvsII=stage18.SIII-stage18.SII, 
+                              stage21.IIvsI=stage21.SII-stage21.SI, stage21.IIIvsI=stage21.SIII-stage21.SI, 
+                              stage21.IIIvsII=stage21.SIII-stage21.SII, 
+                              stage25.IIvsI=stage25.SII-stage25.SI, stage25.IIIvsI=stage25.SIII-stage25.SI, 
+                              stage25.IIIvsII=stage25.SIII-stage25.SII, 
+                              stage27.IIvsI=stage27.SII-stage27.SI, stage27.IIIvsI=stage27.SIII-stage27.SI, 
+                              stage27.IIIvsII=stage27.SIII-stage27.SII, 
+                              stage35.IIvsI=stage35.SII-stage35.SI, stage35.IIIvsI=stage35.SIII-stage35.SI, 
+                              stage35.IIIvsII=stage35.SIII-stage35.SII, levels=design)
+
+## test
+stage8 <- glmQLFTest(fit, contrast = my.contrasts[,1:3])
+stage18 <- glmQLFTest(fit, contrast = my.contrasts[,4:6])
+stage21 <- glmQLFTest(fit, contrast = my.contrasts[,7:9])
+stage25 <- glmQLFTest(fit, contrast = my.contrasts[,10:12])
+stage27 <- glmQLFTest(fit, contrast = my.contrasts[,13:15])
+stage35 <- glmQLFTest(fit, contrast = my.contrasts[,16:18])
+
+## results
+stage8 <- as.data.frame(topTags(stage8, n=Inf))
+stage18 <- as.data.frame(topTags(stage18, n=Inf))
+stage21 <- as.data.frame(topTags(stage21, n=Inf))
+stage25 <- as.data.frame(topTags(stage25, n=Inf))
+stage27 <- as.data.frame(topTags(stage27, n=Inf))
+stage35 <- as.data.frame(topTags(stage35, n=Inf))
+
+fdr_thr <- 0.05
+nDE <- t(data.frame(stage8=nrow(stage8[stage8$FDR<fdr_thr,]), stage18=nrow(stage18[stage18$FDR<fdr_thr,]),
+                    stage21=nrow(stage21[stage21$FDR<fdr_thr,]), stage25=nrow(stage25[stage25$FDR<fdr_thr,]),
+                    stage27=nrow(stage27[stage27$FDR<fdr_thr,]), stage35=nrow(stage35[stage35$FDR<fdr_thr,])))
+colnames(nDE) <- "numberDE"
+nDE
+```
+
+To increase power, we can now test the average of all somites across stages. This will detect changes that are conserved across development but miss any stage-specific changes. The increased power from having many more replicates results in a higher number of significant genes between somites I and II and, mostly, between somites I and III.
+
+```{r somiteTrios_average}
+my.contrasts <- makeContrasts(
+  somiteIIvsI = (stage8.SII + stage18.SII + stage21.SII + stage25.SII + stage27.SII + stage35.SII)/6 - (stage8.SI + stage18.SI + stage21.SI + stage25.SI + stage27.SI + stage35.SI)/6,
+  somiteIIIvsI = (stage8.SIII + stage18.SIII + stage21.SIII + stage25.SIII + stage27.SIII + stage35.SIII)/6 - (stage8.SI + stage18.SI + stage21.SI + stage25.SI + stage27.SI + stage35.SI)/6,
+  somiteIIIvsII = (stage8.SIII + stage18.SIII + stage21.SIII + stage25.SIII + stage27.SIII + stage35.SIII)/6 - (stage8.SII + stage18.SII + stage21.SII + stage25.SII + stage27.SII + stage35.SII)/6,
+  levels=design)
+
+somiteIIvsI.all <- glmQLFTest(fit, contrast = my.contrasts[,"somiteIIvsI"])
+somiteIIIvsI.all <- glmQLFTest(fit, contrast = my.contrasts[,"somiteIIIvsI"])
+somiteIIIvsII.all <- glmQLFTest(fit, contrast = my.contrasts[,"somiteIIIvsII"])
+
+## data.frames
+somiteIIvsI.all <- as.data.frame(topTags(somiteIIvsI.all, n=Inf))
+somiteIIIvsI.all <- as.data.frame(topTags(somiteIIIvsI.all, n=Inf))
+somiteIIIvsII.all <- as.data.frame(topTags(somiteIIIvsII.all, n=Inf))
+
+nDE <- data.frame(IvsII = nrow(somiteIIvsI.all[somiteIIvsI.all$FDR < fdr_thr,]), IIvsIII = nrow(somiteIIIvsII.all[somiteIIIvsII.all$FDR < fdr_thr,]), IvsIII = nrow(somiteIIIvsI.all[somiteIIIvsI.all$FDR < fdr_thr,]))
+row.names(nDE) <- c("all")
+t(nDE)
+```
+
+At first glance, we can see several genes significantly changing congruently in both comparisons, which suggest changes are gradual and get bigger as differentiation proceeds.
+
+```{r MAplotsAll, message=FALSE, fig.width=10, fig.height=5}
+plots <- list()
+
+tmp <- somiteIIvsI.all
+colnames(tmp)[c(2,3,6)] <- c("log2FoldChange","baseMean","padj")
+tmp$baseMean <- 2^tmp$baseMean-1
+plots[[1]] <- ggmaplot(tmp, FDR = fdr_thr, fc=0, genenames = tmp$genes, size=1, legend = "top", top=30, label.rectangle = TRUE, select.top.method = "padj", font.label = c("bold", 9), main="somite II vs I", ggtheme = theme_minimal() )
+
+tmp <- somiteIIIvsI.all
+colnames(tmp)[c(2,3,6)] <- c("log2FoldChange","baseMean","padj")
+tmp$baseMean <- 2^tmp$baseMean-1
+plots[[2]] <- ggmaplot(tmp, FDR = fdr_thr, fc=0, genenames = tmp$genes, size=1, legend = "top", top=30, label.rectangle = TRUE, select.top.method = "padj", font.label = c("bold", 9), main="somite III vs I ", ggtheme = theme_minimal() )
+
+multiplot(plotlist = plots, cols=2)
+```
+
+There are `r length(intersect(somiteIIvsI.all[somiteIIvsI.all$FDR<0.05,1], somiteIIIvsI.all[somiteIIIvsI.all$FDR<0.05,1]))` genes significant in both comparisons, which means that the changes of somite IvsII are mostly a subset of IvsIII. And this suggests that changes are small and progressive, and are only big enough between somites I and III to become significant. This is certainly true for the most significant changes.
+
+```{r retrieveExpr}
+dataNorm <- read.table(paste0(dir, "RNA-seq/data/geneCounts.NORM_logCPM.tsv"))
+
+retrieveGeneExpr <- function(dataNorm, meta, columns=c("stage", "somite", "date"), gene){
+  d <- t(as.data.frame(dataNorm[dataNorm$gene==gene,-1]))
+  stopifnot(identical(row.names(d), meta$sample))
+  d <- cbind(d, meta[,columns])
+  colnames(d)[1] <- "count"
+  return(d)
+}
+```
+
+```{r examples, fig.width=9, fig.height=6, message=FALSE, warning=FALSE}
+plots <- list()
+tmp <- somiteIIIvsI.all[somiteIIIvsI.all$FDR<0.05,1]
+for(i in 1:6){
+  d <- retrieveGeneExpr(dataNorm, meta, gene=tmp[i])
+  plots[[i]] <- ggplot(d, aes(x=somite, y=count)) + geom_boxplot(aes(fill=somite)) + scale_fill_brewer(palette = "Purples") + ggtitle(tmp[i]) + theme(legend.position="none") + ylab("CPM")
+}
+multiplot(plotlist = plots, cols=3)
+```
+
+Importantly, the ~100 genes that are only significant between somites IvsII but not IvsIII are not false positives, and represent a small set of genes with non-monotonic dynamics; instead, somiteII behaves differently to somites I and III.
+
+```{r ivsii_only, fig.width=9, fig.height=6}
+tmp <- setdiff(somiteIIvsI.all[somiteIIvsI.all$FDR<0.05,1], somiteIIIvsI.all[somiteIIIvsI.all$FDR<0.05,1])
+plots <- list()
+for(i in 1:6){
+  d <- retrieveGeneExpr(dataNorm, meta, gene=tmp[i])
+  plots[[i]] <- ggplot(d, aes(x=somite, y=count)) + geom_boxplot(aes(fill=somite)) + scale_fill_brewer(palette = "Purples") + ggtitle(tmp[i]) + theme(legend.position="none") + ylab("CPM")
+}
+multiplot(plotlist = plots, cols=3)
+```
+
+Finally, we check whether there are any genes that change for only one stage, and were thus identified in the stage-specific analysis but not in the averaged tests. As expected, there are very few stage-specific changes, but there are some:
+
+```{r stage-specific}
+# stage8 specific
+s8.specific <- setdiff(stage8[stage8$FDR<0.05,1], union(somiteIIvsI.all[somiteIIvsI.all$FDR<0.05,1], somiteIIIvsI.all[somiteIIIvsI.all$FDR<0.05,1]))
+s18.specific <- setdiff(stage18[stage18$FDR<0.05,1], union(somiteIIvsI.all[somiteIIvsI.all$FDR<0.05,1], somiteIIIvsI.all[somiteIIIvsI.all$FDR<0.05,1]))
+# setdiff(stage25[stage25$FDR<0.05,1], union(somiteIIvsI.all[somiteIIvsI.all$FDR<0.05,1], somiteIIIvsI.all[somiteIIIvsI.all$FDR<0.05,1])) # 0
+s35.specific <- setdiff(stage35[stage35$FDR<0.05,1], union(somiteIIvsI.all[somiteIIvsI.all$FDR<0.05,1], somiteIIIvsI.all[somiteIIIvsI.all$FDR<0.05,1]))
+
+nDE <- data.frame(length(s8.specific), length(s18.specific), length(s35.specific))
+colnames(nDE) <- paste0("stage", c(8,18,35))
+row.names(nDE) <- "specific"
+t(nDE)
+```
+
+-**Stage8**: some genes certainly show much more pronounced differences at stage8, even if slight differences are observed in other stages. Not surprisingly, Hox genes come up.
+
+```{r s8.sp, , fig.width=9, fig.height=6}
+plots <- list()
+for(i in 1:6){
+  d <- retrieveGeneExpr(dataNorm, meta, gene=s8.specific[i])
+  plots[[i]] <- ggplot(d, aes(x=as.factor(stage), y=count)) + geom_boxplot(aes(fill=somite)) + scale_fill_brewer(palette = "Purples") + ggtitle(s8.specific[i]) + theme(legend.position="none") + ylab("CPM") + xlab("stage")
+}
+multiplot(plotlist = plots, cols=3)
+```
+
+-**Stage18**: only three genes are significant at this stage. The behaviour doesn't seem as stage-specific, and might represent genes with reduced power.
+
+```{r s18.sp, , fig.width=9, fig.height=3}
+plots <- list()
+for(i in 1:3){
+  d <- retrieveGeneExpr(dataNorm, meta, gene=s18.specific[i])
+  plots[[i]] <- ggplot(d, aes(x=as.factor(stage), y=count)) + geom_boxplot(aes(fill=somite)) + scale_fill_brewer(palette = "Purples") + ggtitle(s18.specific[i]) + theme(legend.position="none") + ylab("CPM") + xlab("stage")
+}
+multiplot(plotlist = plots, cols=3)
+```
+
+-**Stage35**: similar to stage8, these genes do show a more pronounced difference in stage35.
+
+```{r s35.sp, , fig.width=9, fig.height=6}
+plots <- list()
+for(i in 1:6){
+  d <- retrieveGeneExpr(dataNorm, meta, gene=s35.specific[i])
+  plots[[i]] <- ggplot(d, aes(x=as.factor(stage), y=count)) + geom_boxplot(aes(fill=somite)) + scale_fill_brewer(palette = "Purples") + ggtitle(s35.specific[i]) + theme(legend.position="none") + ylab("CPM") + xlab("stage")
+}
+multiplot(plotlist = plots, cols=3)
+```
+
+In all, we get a little over a thousand (`r sum(length(union(somiteIIvsI.all[somiteIIvsI.all$FDR<0.05,1], somiteIIIvsI.all[somiteIIIvsI.all$FDR<0.05,1])), length(s8.specific), length(s18.specific), length(s35.specific))`) genes differentially expressed between somites, with the vast majority of these showing incremental changes as differentiation proceeds, and a concerted behaviour across development.
+
+#### Differences across developmental stages
+
+We can also test for changes as development proceeds. Again, we can check first if there are any changes that happen differently in somite I, II or III. So we test whether any pairwise comparison between any two stages is significant, per somite. There are almost twice as many genes identified with the somiteI data, but still only a few hundred genes are significant.
+
+```{r stage_perSomite}
+my.contrasts <- makeContrasts(stage8vs18 = stage18.SI - stage8.SI, stage8vs21 = stage21.SI - stage8.SI,
+                              stage8vs25 = stage25.SI - stage8.SI, stage8vs27 = stage27.SI - stage8.SI, 
+                              stage8vs35 = stage35.SI - stage8.SI, 
+                              stage18vs21 = stage21.SI - stage18.SI, stage18vs25 = stage25.SI - stage18.SI, 
+                              stage18vs27 = stage27.SI - stage18.SI, stage18vs35 = stage35.SI - stage18.SI, 
+                              stage21vs25 = stage25.SI - stage21.SI, stage21vs27 = stage27.SI - stage21.SI, 
+                              stage21vs35 = stage35.SI - stage21.SI, 
+                              stage25vs27 = stage27.SI - stage25.SI, 
+                              stage27vs35 = stage27.SI - stage35.SI, levels=design)
+test <- glmQLFTest(fit, contrast = my.contrasts)
+somiteI <- as.data.frame(topTags(test, n=Inf))
+
+my.contrasts <- makeContrasts(stage8vs18 = stage18.SII - stage8.SII, stage8vs21 = stage21.SII - stage8.SII,
+                              stage8vs25 = stage25.SII - stage8.SII, stage8vs27 = stage27.SII - stage8.SII, 
+                              stage8vs35 = stage35.SII - stage8.SII, 
+                              stage18vs21 = stage21.SII - stage18.SII, stage18vs25 = stage25.SII - stage18.SII, 
+                              stage18vs27 = stage27.SII - stage18.SII, stage18vs35 = stage35.SII - stage18.SII, 
+                              stage21vs25 = stage25.SII - stage21.SII, stage21vs27 = stage27.SII - stage21.SII, 
+                              stage21vs35 = stage35.SII - stage21.SII, 
+                              stage25vs27 = stage27.SII - stage25.SII, 
+                              stage27vs35 = stage27.SII - stage35.SII, levels=design)
+test <- glmQLFTest(fit, contrast = my.contrasts)
+somiteII <- as.data.frame(topTags(test, n=Inf))
+
+my.contrasts <- makeContrasts(stage8vs18 = stage18.SIII - stage8.SIII, stage8vs21 = stage21.SIII - stage8.SIII,
+                              stage8vs25 = stage25.SIII - stage8.SIII, stage8vs27 = stage27.SIII - stage8.SIII, 
+                              stage8vs35 = stage35.SIII - stage8.SIII, 
+                              stage18vs21 = stage21.SIII - stage18.SIII, stage18vs25 = stage25.SIII - stage18.SIII, 
+                              stage18vs27 = stage27.SIII - stage18.SIII, stage18vs35 = stage35.SIII - stage18.SIII, 
+                              stage21vs25 = stage25.SIII - stage21.SIII, stage21vs27 = stage27.SIII - stage21.SIII, 
+                              stage21vs35 = stage35.SIII - stage21.SIII, 
+                              stage25vs27 = stage27.SIII - stage25.SIII, 
+                              stage27vs35 = stage27.SIII - stage35.SIII, levels=design)
+test <- glmQLFTest(fit, contrast = my.contrasts)
+somiteIII <- as.data.frame(topTags(test, n=Inf))
+
+nDE <- t(data.frame(somiteI=nrow(somiteI[somiteI$FDR < fdr_thr,]), somiteII=nrow(somiteII[somiteII$FDR < fdr_thr,]), somiteIII=nrow(somiteIII[somiteIII$FDR < fdr_thr,])))
+colnames(nDE) <- "numberDE"
+nDE
+```
+And there are plenty of genes identified in only one of the somites, although there is a good core of genes identified in all comparisons.
+
+```{r venn}
+venn(data=list(somiteI=row.names(somiteI[somiteI$FDR < fdr_thr,]), somiteII=row.names(somiteII[somiteII$FDR < fdr_thr,]), somiteIII=row.names(somiteIII[somiteIII$FDR < fdr_thr,])))
+```
+
+Alternatively, we can use the somite trios as replicates (which is not unreasonable given the small number of DE genes between them) to increase power. In this case, genes with an adjusted p-value lower than 0.05 are DE between any pair of stages. This increases the number to a couple thousand significant genes.
+
+```{r stage-averaga}
+my.contrasts <- makeContrasts(stage8vs18 = (stage18.SIII+stage18.SII+stage18.SI)/3 - (stage8.SIII+stage8.SII+stage8.SI)/3,
+                              stage8vs21 = (stage21.SIII+stage21.SII+stage21.SI)/3 - (stage8.SIII+stage8.SII+stage8.SI)/3,
+                              stage8vs25 = (stage25.SIII+stage25.SII+stage25.SI)/3 - (stage8.SIII+stage8.SII+stage8.SI)/3,
+                              stage8vs27 = (stage27.SIII+stage27.SII+stage27.SI)/3 - (stage8.SIII+stage8.SII+stage8.SI)/3,
+                              stage8vs35 = (stage35.SIII+stage35.SII+stage35.SI)/3 - (stage8.SIII+stage8.SII+stage8.SI)/3,
+                              stage18vs21 = (stage21.SIII+stage21.SII+stage21.SI)/3 - (stage18.SIII+stage18.SII+stage18.SI)/3,
+                              stage18vs25 = (stage25.SIII+stage25.SII+stage25.SI)/3 - (stage18.SIII+stage18.SII+stage18.SI)/3,
+                              stage18vs27 = (stage27.SIII+stage27.SII+stage27.SI)/3 - (stage18.SIII+stage18.SII+stage18.SI)/3,
+                              stage18vs35 = (stage35.SIII+stage35.SII+stage35.SI)/3 - (stage18.SIII+stage18.SII+stage18.SI)/3,
+                              stage21vs25 = (stage25.SIII+stage25.SII+stage25.SI)/3 - (stage21.SIII+stage21.SII+stage21.SI)/3,
+                              stage21vs27 = (stage27.SIII+stage27.SII+stage27.SI)/3 - (stage21.SIII+stage21.SII+stage21.SI)/3,
+                              stage21vs35 = (stage35.SIII+stage35.SII+stage35.SI)/3 - (stage21.SIII+stage21.SII+stage21.SI)/3,
+                              stage25vs27 = (stage27.SIII+stage27.SII+stage27.SI)/3 - (stage25.SIII+stage25.SII+stage25.SI)/3,
+                              stage25vs35 = (stage35.SIII+stage35.SII+stage35.SI)/3 - (stage25.SIII+stage25.SII+stage25.SI)/3,
+                              stage27vs35 = (stage35.SIII+stage35.SII+stage35.SI)/3 - (stage27.SIII+stage27.SII+stage27.SI)/3, levels=design)
+
+test <- glmQLFTest(fit, contrast = my.contrasts)
+all <- as.data.frame(topTags(test, n=Inf))
+nrow(all[all$FDR < 0.05,])
+```
+
+Importantly, almost all (>91.1%) of the genes identified in the somite-specific analyses are identified in this *averaged* test. Thus, the differences before are probably due to lack of power, and few to somite-specific changes.
+
+```{r overlaps}
+sI <- row.names(somiteI[somiteI$FDR < fdr_thr,])
+sII <- row.names(somiteII[somiteII$FDR < fdr_thr,])
+sIII <- row.names(somiteIII[somiteIII$FDR < fdr_thr,])
+ave <- row.names(all[all$FDR < fdr_thr,])
+
+# length(intersect(ave, sI))/length(sI)*100 # 91.06
+# length(intersect(ave, sII))/length(sII)*100 # 96.96
+# length(intersect(ave, sIII))/length(sIII)*100 # 95.87
+```
+
+We do not have a p-value for each pair-wise comparison so we cannot split the genes into which are significant for each pair/groups of stages. However, we can use the fold-change as a proxy for whether the gene is likely to be DE in each comparison. Counting the number of genes with an absolute fold-change of ~1.5 or more gives us an idea of the magnitude of changes between stages.
+
+```{r fold-change}
+all.fc <- all
+all.fc <- all.fc[all.fc$FDR < 0.05,]
+all.fc[,2:16] <- t(apply(all.fc[,2:16], 1, function(x) ifelse(abs(x)>=0.6,1,0)))
+
+tmp <- colSums(all.fc[,2:16])
+data.frame(stage8=tmp[1:5], stage18=c("",tmp[6:9]), stage21=c("","",tmp[10:12]), stage25=c("","","",tmp[13:14]), stage27=c("","","","",tmp[15]))
+```
+
+It is clear that as stages diverge the number of genes with *large* differences increases.
+
+Even though most of the genes significant on a per-somite basis are also identified in the averaged analysis, there are a few genes that come up only on the somite-specific analyses, though the numbers are small:
+
+```{r somite-specific}
+sI.specific <- setdiff(somiteI[somiteI$FDR<0.05,1], all[all$FDR<0.05,1])
+sII.specific <- setdiff(somiteII[somiteII$FDR<0.05,1], all[all$FDR<0.05,1])
+sIII.specific <- setdiff(somiteIII[somiteIII$FDR<0.05,1], all[all$FDR<0.05,1])
+
+nDE <- data.frame(length(sI.specific), length(sII.specific), length(sIII.specific))
+colnames(nDE) <- paste0("somite", c("I","II","III"))
+row.names(nDE) <- "specific"
+t(nDE)
+```
+
+In the plots below, darker colour indicates increasing stage.
+
+-**SomiteI**: in many cases, somiteI of stage8, behaves quite differently and thus pushes significance over the line. This might be a combination of stage8 changes with the undifferentiated state of somites.
+
+```{r sI.sp, , fig.width=9, fig.height=6}
+plots <- list()
+for(i in 1:6){
+  d <- retrieveGeneExpr(dataNorm, meta, gene=sI.specific[i])
+  plots[[i]] <- ggplot(d, aes(x=somite, y=count)) + geom_boxplot(aes(fill=as.factor(stage))) + scale_fill_brewer(palette = "Purples") + ggtitle(sI.specific[i]) + theme(legend.position="none") + ylab("CPM") + xlab("somite")
+}
+multiplot(plotlist = plots, cols=3)
+```
+
+
+-**SomiteII**: in these cases it seems that significance is reached by a few outliers, but the behaviour is overall similar across somites.
+
+```{r sII.sp, , fig.width=9, fig.height=6}
+plots <- list()
+for(i in 1:6){
+  d <- retrieveGeneExpr(dataNorm, meta, gene=sII.specific[i])
+  plots[[i]] <- ggplot(d, aes(x=somite, y=count)) + geom_boxplot(aes(fill=as.factor(stage))) + scale_fill_brewer(palette = "Purples") + ggtitle(sII.specific[i]) + theme(legend.position="none") + ylab("CPM") + xlab("somite")
+}
+multiplot(plotlist = plots, cols=3)
+```
+
+
+-**SomiteIII**: once again, the somite III of stage8 seems to behave more extremely.
+
+```{r sIII.sp, , fig.width=9, fig.height=6}
+plots <- list()
+for(i in 1:6){
+  d <- retrieveGeneExpr(dataNorm, meta, gene=sIII.specific[i])
+  plots[[i]] <- ggplot(d, aes(x=somite, y=count)) + geom_boxplot(aes(fill=as.factor(stage))) + scale_fill_brewer(palette = "Purples") + ggtitle(sIII.specific[i]) + theme(legend.position="none") + ylab("CPM") + xlab("somite")
+}
+multiplot(plotlist = plots, cols=3)
+```
+
+------
+
+This is promising, suggesting there are small but consistent differences in a restricted set of genes as somites differentiate; and a much larger set of genes changing as development progresses.
+
+```{r save}
+# somite trios, per stage
+write.table(stage8, paste0(dir, "RNA-seq/results/03.2_DEresults_somiteTrios_stage8_sva.tsv"), quote = FALSE, sep="\t")
+write.table(stage18, paste0(dir, "RNA-seq/results/03.2_DEresults_somiteTrios_stage18_sva.tsv"), quote = FALSE, sep="\t")
+write.table(stage21, paste0(dir, "RNA-seq/results/03.2_DEresults_somiteTrios_stage21_sva.tsv"), quote = FALSE, sep="\t")
+write.table(stage25, paste0(dir, "RNA-seq/results/03.2_DEresults_somiteTrios_stage25_sva.tsv"), quote = FALSE, sep="\t")
+write.table(stage27, paste0(dir, "RNA-seq/results/03.2_DEresults_somiteTrios_stage27_sva.tsv"), quote = FALSE, sep="\t")
+write.table(stage35, paste0(dir, "RNA-seq/results/03.2_DEresults_somiteTrios_stage35_sva.tsv"), quote = FALSE, sep="\t")
+
+# somite trios, average
+write.table(somiteIIvsI.all, paste0(dir, "RNA-seq/results/03.2_DEresults_somiteTrios_somiteIvsII_sva.tsv"), quote = FALSE, sep="\t")
+write.table(somiteIIIvsII.all, paste0(dir, "RNA-seq/results/03.2_DEresults_somiteTrios_somiteIIvsIII_sva.tsv"), quote = FALSE, sep="\t")
+write.table(somiteIIIvsI.all, paste0(dir, "RNA-seq/results/03.2_DEresults_somiteTrios_somiteIvsIII_sva.tsv"), quote = FALSE, sep="\t")
+
+# stage, per somite
+write.table(somiteI, paste0(dir, "RNA-seq/results/03.2_DEresults_stage_somiteI_sva.tsv"), quote = FALSE, sep="\t")
+write.table(somiteII, paste0(dir, "RNA-seq/results/03.2_DEresults_stage_somiteII_sva.tsv"), quote = FALSE, sep="\t")
+write.table(somiteIII, paste0(dir, "RNA-seq/results/03.2_DEresults_stage_somiteIII_sva.tsv"), quote = FALSE, sep="\t")
+
+# stage, aveerage
+write.table(all, paste0(dir, "RNA-seq/results/03.2_DEresults_stage_all_sva.tsv"), quote = FALSE, sep="\t")
+```
+
+
+
+```{r info}
+sessionInfo()
+```
+
