@@ -1,0 +1,196 @@
+---
+title: "Genes expressed dynamically during somitogenesis"
+date: "30 May 2019"
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(edgeR)
+library(limma)
+library(ggplot2)
+library(RColorBrewer)
+library(UpSetR)
+library(topGO)
+
+dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+
+palette(c(brewer.pal(n=8, "Set2"), brewer.pal(n=9, "Set1")))
+
+#### FUNCTIONS
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols), byrow = TRUE)
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+We have analysed the RNA-seq data from mouse somites, and defined a method based on PCA to capture the variation in the residuals of the fit of the biological question of interest, to remove technical variation. This allows identifying differentially expressed (DE) genes as somites differentiate and as development proceeds. So what are these genes and what processes are involved in somitogenesis?
+
+```{r data}
+# metadata
+meta <- read.table(paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+meta <- meta[meta$use==1,]
+
+# raw data
+data <- read.table(paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"))
+y <- readRDS(paste0(dir, "RNA-seq/results/01_edgeRobject.Rds"))
+
+# normalised data
+dataNorm <- cpm(y, log = TRUE, prior.count = 1)
+
+# remove batch effect
+pcs <- read.table(paste0(dir, "RNA-seq/results/02_pcs_residuals.tab"))
+dataNorm <- removeBatchEffect(dataNorm, design = model.matrix(~0+group, meta), covariates = pcs[,1:14])
+dataNorm <- cbind(data[match(row.names(dataNorm), row.names(data)),1], as.data.frame(dataNorm))
+colnames(dataNorm)[1] <- "gene"
+```
+
+### Somite differentiation
+
+After somites are segmented they begin a differentiation program to give rise to the appropriate derivatives. We have sequenced the three most recently segmented somites. These represent the somite that has just been segmented (less than 2 hours old) as well as somites that have been segmented for ~4 and 6 hours respectively; in these, the differentiation program should be underway.
+
+So what can we learn about this process from the differentially expressed genes betwen the somite trios?
+
+First, we filter the results from the DE analysis (PCA approach) to retain only genes with an adjusted p-value smaller than 0.05, and an absolute fold-change greater than 1.5. For cases where we tested several contrasts at once we retain the biggest fold-change and use that to filter.
+
+We tested both stge-specific changes and the average across all stages. This resulted in a few hundred to around a thousand genes identified in each test.
+
+```{r somiteTrios}
+## stage-specific changes
+somiteTrios.stage <- list()
+for(contrast in paste0("stage", c(8,18,21,25,27,35))){
+  somiteTrios.stage[[contrast]] <- read.table(paste0(dir, "RNA-seq/results/03.3_DEresults_somiteTrios_", contrast, "_pca.tsv"), stringsAsFactors = FALSE)
+  somiteTrios.stage[[contrast]] <- somiteTrios.stage[[contrast]][somiteTrios.stage[[contrast]]$FDR < 0.05,]
+  somiteTrios.stage[[contrast]]$logFC.max <- sapply(1:nrow(somiteTrios.stage[[contrast]]), function(x) somiteTrios.stage[[contrast]][x,which.max(abs(somiteTrios.stage[[contrast]][x,2:4]))+1])
+  somiteTrios.stage[[contrast]] <- somiteTrios.stage[[contrast]][abs(somiteTrios.stage[[contrast]]$logFC.max) > log2(1.5),]
+}
+nDE <- unlist(lapply(somiteTrios.stage, nrow))
+nDE
+
+## average across stages changes
+somiteTrios.ave <- list()
+for(contrast in paste0("somite", c("IvsII", "IIvsIII", "IvsIII"))){
+  somiteTrios.ave[[contrast]] <- read.table(paste0(dir, "RNA-seq/results/03.3_DEresults_somiteTrios_", contrast, "_pca.tsv"), stringsAsFactors = FALSE)
+  somiteTrios.ave[[contrast]] <- somiteTrios.ave[[contrast]][somiteTrios.ave[[contrast]]$FDR < 0.05 & abs(somiteTrios.ave[[contrast]]$logFC) > log2(1.5),]
+}
+nDE <- unlist(lapply(somiteTrios.ave, nrow))
+nDE
+```
+
+Many of the stage-specific changes are also identified when taking the average across stages. Nearly 1,300 genes are detected as DE in the average comparison, indicating changes that occur as somites differentiate, no matter how far along development this is happening. These represent the core network for somite differentiation/maturation.
+
+However, there are also a number of genes that are identified only in stage-specific tests.
+
+```{r stage-specific}
+somiteTrios.ave.all <- union(row.names(somiteTrios.ave[["somiteIvsII"]]), row.names(somiteTrios.ave[["somiteIIvsIII"]]))
+somiteTrios.ave.all <- union(somiteTrios.ave.all, row.names(somiteTrios.ave[["somiteIvsIII"]]))
+somiteTrios.all <- union(somiteTrios.ave.all, row.names(somiteTrios.stage[["stage8"]]))
+somiteTrios.all <- union(somiteTrios.all, row.names(somiteTrios.stage[["stage18"]]))
+somiteTrios.all <- union(somiteTrios.all, row.names(somiteTrios.stage[["stage21"]]))
+somiteTrios.all <- union(somiteTrios.all, row.names(somiteTrios.stage[["stage25"]]))
+somiteTrios.all <- union(somiteTrios.all, row.names(somiteTrios.stage[["stage27"]]))
+somiteTrios.all <- union(somiteTrios.all, row.names(somiteTrios.stage[["stage35"]]))
+
+somiteTrios.all <- as.data.frame(somiteTrios.all)
+colnames(somiteTrios.all) <- "ID"
+somiteTrios.all$gene <- data[somiteTrios.all$ID,1]
+somiteTrios.all$average <- ifelse(somiteTrios.all$ID %in% somiteTrios.ave.all, 1, 0)
+somiteTrios.all$stage8 <- ifelse(somiteTrios.all$ID %in% row.names(somiteTrios.stage[["stage8"]]) & somiteTrios.all$average == 0, 1, 0)
+somiteTrios.all$stage18 <- ifelse(somiteTrios.all$ID %in% row.names(somiteTrios.stage[["stage18"]]) & somiteTrios.all$average == 0, 1, 0)
+somiteTrios.all$stage21 <- ifelse(somiteTrios.all$ID %in% row.names(somiteTrios.stage[["stage21"]]) & somiteTrios.all$average == 0, 1, 0)
+somiteTrios.all$stage25 <- ifelse(somiteTrios.all$ID %in% row.names(somiteTrios.stage[["stage25"]]) & somiteTrios.all$average == 0, 1, 0)
+somiteTrios.all$stage27 <- ifelse(somiteTrios.all$ID %in% row.names(somiteTrios.stage[["stage27"]]) & somiteTrios.all$average == 0, 1, 0)
+somiteTrios.all$stage35 <- ifelse(somiteTrios.all$ID %in% row.names(somiteTrios.stage[["stage35"]]) & somiteTrios.all$average == 0, 1, 0)
+
+colSums(somiteTrios.all[,-c(1:2)])
+```
+
+And ~70% of these are called in only one stage with the rest identified in two or more stages (but not on the average test). However, the vast majority of these genes are small differences that reach significance in only one or a few stages, but show consistent behaviour in most stages; thus, they represent cases of insuffcient power. 
+
+There are some cases of true stage specificity, but these are rare.
+
+```{r overlap_stageSpecific, fig.width=10}
+upset(somiteTrios.all[somiteTrios.all$average==0,], nsets=6, nintersects = 100, sets.x.label = "number DE genes per stage")
+```
+
+#### Biological processes
+
+We can use gene ontology enrichment analysis to determine what these genes are involved in. We check for significant enrichments considering all `r nrow(somiteTrios.all)` genes that are significant in either the average or stage-specific tests. Not surprisingly, many terms related to developmental are highly significant. These include patterning and segmentation, differentiation and morphogenesis, and many different organs. 
+
+```{r somiteTrios_GO}
+universe <- row.names(dataNorm)
+all <- as.factor(as.numeric(universe %in% somiteTrios.all$ID))
+names(all) <- universe
+table(all)
+
+go.all <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.all.test <- runTest(go.all, algorithm = "classic", statistic = "Fisher" )
+go.all.res <- GenTable(go.all, Fisher.classic = go.all.test, topNodes = length(score(go.all.test)), numChar=60)
+go.all.res$Fisher.classic.adj <- p.adjust(go.all.res$Fisher.classic, "fdr")
+go.all.res[c(3,5,9,10,13,14,19,20,22,23,24,33,34,38,39,40,46,49,53,59),]
+
+# using all <- as.factor(as.numeric(universe %in% somiteTrios.all[somiteTrios.all$average==1,]$ID)) instead, gives similar terms, but more more specialised terms and more related to somitogenes (although other organs are still there)
+# using all <- as.factor(as.numeric(universe %in% somiteTrios.all[somiteTrios.all$average==0,]$ID)) instead, gives much more general terms, a lot of nervous-system terms and those related to somitogenesis are much rarer and less significant
+```
+
+Given the large redundance between GO terms, it'll take more detailed examination of the actual genes involved in these terms to determine their likely function in the context of the somites.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r info}
+sessionInfo()
+```
+
