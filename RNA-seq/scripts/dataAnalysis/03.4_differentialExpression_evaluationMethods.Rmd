@@ -133,7 +133,7 @@ grid.draw(v)
 
 The genes identified only with the SVA method tend to have much higher FDRs. For the PCA-specific genes, there is a similar distribution of FDR values, with many more showing very small values. The comparison is more difficult given how large is the number of genes that are PCA-specific.
 
-```{r somiteTrios_nonShared}
+```{r somiteTrios_nonShared, fig.width=10}
 plots <- list()
 
 shared <- somiteTrios_sva[["IvsIII"]][somiteTrios_sva[["IvsIII"]]$genes %in% intersect(somiteTrios_sva[["IvsIII"]]$genes, somiteTrios_pca[["IvsIII"]]$genes),]
@@ -152,13 +152,13 @@ plots[[2]] <- ggplot(df, aes(pca_genes, FDR)) + geom_violin(scale="width") + geo
 multiplot(plotlist = plots, cols=2)
 ```
 
-Thus, this suggests that the genes lost from the SVA method are weak canidadates, so not a bit loss.
+Thus, this suggests that the genes lost from the SVA method are weak candidates, so not a bit loss.
 
 The question now is whether the over 3 thousand genes recovered by the PCA approach are indeed DE. 
 
 From the MA plot we can see that many of the fold-changes are very small.
 
-```{r}
+```{r MA}
 tmp <- read.table(paste0(dir, "RNA-seq/results/03.3_DEresults_somiteTrios_somiteIvsIII_pca.tsv"), stringsAsFactors = FALSE)
 colnames(tmp)[c(2,3,6)] <- c("log2FoldChange","baseMean","padj")
 tmp$baseMean <- 2^tmp$baseMean-1
@@ -168,10 +168,10 @@ ggmaplot(tmp, FDR = 0.05, fc=0, genenames = tmp$genes, size=1, legend = "top", t
 Indeed, a large portion of the genes show a log2-fold-change of only 0.2 (dashed lines). This corresponds to a fold-change of `r round(2^0.2,2)` which is not really meaningful. This suggests that by removing all the structure found in the residuals of the fit we have reduced the noise to a point where we have ridiculous power to *detect tiny differences*, but these probably are not differences we are interested in. So we can add a filter requiring a fold-change of at least 1.5 (dotted lines) to retain only substantial changes.
 
 ```{r fc}
-ggplot(somiteTrios_pca[["IvsIII"]], aes(1,logFC)) + geom_violin(lwd=0.75) + geom_hline(yintercept=c(-log2(1.5),-0.2,0.2,log2(1.5)), lty=c(3,2,2,3), col="grey")
+ggplot(somiteTrios_pca[["IvsIII"]], aes(1,logFC)) + geom_violin(lwd=0.75) + geom_hline(yintercept=c(-log2(1.5),-0.2,0.2,log2(1.5)), lty=c(3,2,2,3), col="grey") + xlab("") + theme(axis.ticks.x = element_blank(), axis.text.x = element_blank())
 ```
 
-This filter affects much more the results from the PCA analysis, followed by the SVA results and filters the fewest genes from the baseline results. This agrees with increases in power gained by reducing the dataset's varaibility.
+This filter affects much more the results from the PCA analysis, followed by the SVA results and filters the fewest genes from the baseline results. This agrees with increases in power gained by reducing the dataset's variability.
 
 ```{r filter}
 somiteTrios_base.filter <- somiteTrios_base
@@ -197,7 +197,7 @@ grid.draw(v)
 
 So let's check the genes gained from the PCA method. As before, they have a similar distribution of p-values to those shared with the other methods, but they do tend to have smaller fold-changes, suggesting we gain them due to the increased power in the test.
 
-```{r pca_only, fig.width=10}
+```{r pca_only, fig.width=10, fig.height=4}
 plots <- list()
 shared <- somiteTrios_pca.filter[["IvsIII"]][somiteTrios_pca.filter[["IvsIII"]]$genes %in% intersect(somiteTrios_sva.filter[["IvsIII"]]$genes, somiteTrios_pca.filter[["IvsIII"]]$genes),]
 pca_only <- somiteTrios_pca.filter[["IvsIII"]][somiteTrios_pca.filter[["IvsIII"]]$genes %in% setdiff(somiteTrios_pca.filter[["IvsIII"]]$genes, somiteTrios_sva.filter[["IvsIII"]]$genes),]
@@ -264,11 +264,12 @@ multiplot(plotlist = plots, cols=3)
 
 So this all seems sensible, and the gained genes do seem to be DE between somites.
 
+
 #### Developmental changes
 
 So now let's do the same for the tests looking at changes across developmental stages.
 
-In this case we see many more significant genes in the baseline compared to the SVA approach. Nontheless, the PCA method still recovers twice as many genes compared to the baseline. This suggests maybe one of the SVs is capturing a developmental effect, instead of technical noise.
+In this case we see many more significant genes in the baseline compared to the SVA approach. Nonetheless, the PCA method still recovers twice as many genes compared to the baseline. This suggests maybe one of the SVs is capturing a developmental effect, instead of technical noise.
 
 ```{r stages}
 stages_base <- read.table(paste0(dir, "RNA-seq/results/03.1_DEresults_stage_all.tsv"), stringsAsFactors = FALSE)
@@ -318,16 +319,16 @@ plots[[3]] <- ggplot(df, aes(pca_genes, FDR)) + geom_violin(scale="width") + geo
 multiplot(plotlist = plots, cols=3)
 ```
 
-As observed with the somite trio test, the fold-changes are dominated by very small changes, due to the increased power. The changes between stages are much larger, so now the bulk of the genes have fold-changes of about 1.3 (dashed line). This is still a very small difference and probably not very informative. In this case it might be good to filter a little more stringently, and retain only genes with a fold-change of 2 or larger (dotted line).
+As observed with the somite trio test, the fold-changes are dominated by very small changes, due to the increased power. The changes between stages are much larger, so now the bulk of the genes have fold-changes of about 1.3 (dashed line). This is still a very small difference and probably not very informative. The filter of minimum fold-change of 1.5 (dotted line) is quite close to the current peak.
 
 ```{r stage_fc}
 ## get the largest fold-change from all pairwise comparisons
 stages_pca$logFC.max <- sapply(1:nrow(stages_pca), function(x) stages_pca[x,which.max(abs(stages_pca[x,2:16]))+1])
 
-ggplot(stages_pca, aes(1,logFC.max)) + geom_violin(lwd=0.75) + geom_hline(yintercept=c(-log2(2),-0.45,0.45,log2(2)), lty=c(3,2,2,3), col="grey")
+ggplot(stages_pca, aes(1,logFC.max)) + geom_violin(lwd=0.75) + geom_hline(yintercept=c(-log2(1.5),-0.45,0.45,log2(1.5)), lty=c(3,2,2,3), col="grey") + xlab("") + theme(axis.ticks.x = element_blank(), axis.text.x = element_blank())
 ```
 
-This filter reduces the number of DE genes to about half, quite uniformly for all methods.
+But still, this filter reduces the number of DE genes by about half for the PCA method, and a bit less for the other methods, suggesting it effectively reduces the genes that became significant just due to massive power but are not real differences.
 
 ```{r stages_filter}
 stages_base$logFC.max <- sapply(1:nrow(stages_base), function(x) stages_base[x,which.max(abs(stages_base[x,2:16]))+1])
@@ -338,99 +339,70 @@ stages_sva.filter <- stages_sva[abs(stages_sva$logFC.max) > log2(1.5),]
 stages_pca.filter <- stages_pca[abs(stages_pca$logFC.max) > log2(1.5),]
 
 nDE <- rbind(nDE, data.frame(baseline=nrow(stages_base.filter), SVA=nrow(stages_sva.filter), PCA=nrow(stages_pca.filter)))
-row.names(nDE)[2] <- "FC>2"
+row.names(nDE)[2] <- "FC>1.5"
 nDE
 ```
 
+And this reduction results in less genes shared by several methods, with a corresponding increase in the number of genes detected only with the baseline or SVA approach. This indicates that some of the genes that are significant in several methods have fold-changes around the threshold and sometimes get filtered out and sometimes not.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-```{r somiteTrios_filter_overlap}
-v <- venn.diagram(x=list(base=somiteTrios_base.filter[['IvsIII']]$genes, SVA=somiteTrios_sva.filter[['IvsIII']]$genes, PCA=somiteTrios_pca.filter[['IvsIII']]$genes), fill=c("tomato1", "steelblue", "darkolivegreen2"), cat.col=c("tomato1", "steelblue", "darkolivegreen4"), alpha = 0.3, cat.fontface=2, filename = NULL)
+```{r stages_filter_overlap}
+v <- venn.diagram(x=list(base=stages_base.filter$genes, SVA=stages_sva.filter$genes, PCA=stages_pca.filter$genes), fill=c("tomato1", "steelblue", "darkolivegreen2"), cat.col=c("tomato1", "steelblue", "darkolivegreen4"), alpha = 0.3, cat.fontface=2, filename = NULL)
 grid.draw(v)
 ```
 
-So let's check the genes gained from the PCA method. As before, they have a similar distribution of p-values to those shared with the other methods, but they do tend to have smaller fold-changes, suggesting we gain them due to the increased power in the test.
+Nonetheless, the remaining genes should include much more meaningful genes. So let's check the gained genes from the PCA method. As before, the FDR distribution is similar to that of shared genes, but the unique tend to have slightly smaller fold-changes.
 
-```{r pca_only, fig.width=10}
+```{r stages_pca_only, fig.width=10, fig.height=4}
 plots <- list()
-shared <- somiteTrios_pca.filter[["IvsIII"]][somiteTrios_pca.filter[["IvsIII"]]$genes %in% intersect(somiteTrios_sva.filter[["IvsIII"]]$genes, somiteTrios_pca.filter[["IvsIII"]]$genes),]
-pca_only <- somiteTrios_pca.filter[["IvsIII"]][somiteTrios_pca.filter[["IvsIII"]]$genes %in% setdiff(somiteTrios_pca.filter[["IvsIII"]]$genes, somiteTrios_sva.filter[["IvsIII"]]$genes),]
+shared <- stages_pca.filter[stages_pca.filter$genes %in% intersect(stages_pca.filter$genes, union(stages_base.filter$genes, stages_sva.filter$genes)),]
+pca_only <- stages_pca.filter[stages_pca.filter$genes %in% setdiff(stages_pca.filter$genes, union(stages_base.filter$genes, stages_sva.filter$genes)),]
 
 df <- data.frame(FDR = c(shared$FDR, pca_only$FDR), pca_genes=c(rep("shared", nrow(shared)), rep("unique", nrow(pca_only))))
 plots[[1]] <- ggplot(df, aes(pca_genes, FDR)) + geom_violin(scale="width") + geom_boxplot(width=0.075)
 
-df <- data.frame(foldChange = c(shared$logFC, pca_only$logFC), pca_genes=c(rep("shared", nrow(shared)), rep("unique", nrow(pca_only))))
+df <- data.frame(foldChange = c(shared$logFC.max, pca_only$logFC.max), pca_genes=c(rep("shared", nrow(shared)), rep("unique", nrow(pca_only))))
 plots[[2]] <- ggplot(df, aes(pca_genes, foldChange)) + geom_violin(scale="width") + geom_boxplot(width=0.075)
 
 multiplot(plotlist = plots, cols=2)
 ```
 
-To convince ourselves that we are picking up sensible changes, we take genes from all levels of significance, that have only been identified with the PCA method.
+Some examples spanning the whole FDR range:
 
-```{r genes}
-plot(pca_only[c(1:3,101:103,201:203,301:303,401:403,501:503,601:603,701:703),]$FDR, xlab="", ylab="FDR", axes=FALSE)
+```{r stages_genes}
+plot(pca_only[c(1:3,501:503,801:803,1001:1003,1501:1503,1801:1803,2001:2003),]$FDR, xlab="", ylab="FDR", axes=FALSE)
 box(bty="l"); axis(2, las=2)
 ```
 
-And we plot their expression levels in each somite, using baseline counts (that is, only normalised for depth of sequencing and composition biases, without removing the technical effects).
+When we plot their expression levels in each stage using baseline counts (that is, only normalised for depth of sequencing and composition biases, without removing the technical effects) the dynamics become less obvious as significance decreases, as expected.
 
-```{r retrieveExpr, fig.width=10, fig.height=20}
-dataNorm <- cpm(y$counts, log=TRUE, prior.count = 1)
-dataNorm <- cbind(data[match(row.names(dataNorm), row.names(data)),1], as.data.frame(dataNorm))
-colnames(dataNorm)[1] <- "gene"
-# dataNorm <- removeBatchEffect(dataNorm[,-1], design = model.matrix(~0+group, meta), covariates = pcs[,1:14])
-# dataNorm <- cbind(data[match(row.names(dataNorm), row.names(data)),1], as.data.frame(dataNorm)); colnames(dataNorm)[1] <- "gene"
-
-retrieveGeneExpr <- function(dataNorm, meta, columns=c("stage", "somite", "date"), gene){
-  d <- t(as.data.frame(dataNorm[dataNorm$gene==gene,-1]))
-  stopifnot(identical(row.names(d), meta$sample))
-  d <- cbind(d, meta[,columns])
-  colnames(d)[1] <- "count"
-  return(d)
-}
-
+```{r stages_retrieveExpr, fig.width=10, fig.height=20}
 plots <- list()
 j=1
-for(i in pca_only$genes[c(1:3,101:103,201:203,301:303,401:403,501:503,601:603,701:703)]){
+
+for(i in pca_only$genes[c(1:3,501:503,801:803,1001:1003,1501:1503,1801:1803,2001:2003)]){
   d <- retrieveGeneExpr(dataNorm, meta, gene=i)
-  plots[[j]] <- ggplot(d, aes(x=somite, y=count)) + geom_boxplot(aes(fill=somite)) + scale_fill_brewer(palette = "Purples") + ggtitle(i) + theme(legend.position="none") + ylab("CPM")
+  plots[[j]] <- ggplot(d, aes(x=as.factor(stage), y=count)) + geom_boxplot(aes(fill=as.factor(stage))) + scale_fill_brewer(palette = "Purples") + ggtitle(i) + theme(legend.position="none") + ylab("CPM")
   j <- j+1
 }
 multiplot(plotlist = plots, cols=3)
 ```
 
-Even the genes that have p-values close to 0.05 (last three) show clear dynamics across somites, even if the changes are quite subtle. Such differences will become more pronounced if the technical variation is regressed out:
+But once the technical variation is regressed out, the dynamics are evident  even for the least significant genes, even if subtle.
 
-```{r retrieveExpr_corr, fig.width=10, fig.height=20}
-pcs <- read.table(paste0(dir, "RNA-seq/results/02_pcs_residuals.tab"))
-dataNorm.corr <- removeBatchEffect(dataNorm[,-1], design = model.matrix(~0+group, meta), covariates = pcs[,1:14])
-dataNorm.corr <- cbind(data[match(row.names(dataNorm.corr), row.names(data)),1], as.data.frame(dataNorm.corr)); colnames(dataNorm.corr)[1] <- "gene"
-
+```{r stages_retrieveExpr_corr, fig.width=10, fig.height=20}
 plots <- list()
 j=1
-for(i in pca_only$genes[c(1:3,101:103,201:203,301:303,401:403,501:503,601:603,701:703)]){
+for(i in pca_only$genes[c(1:3,501:503,801:803,1001:1003,1501:1503,1801:1803,2001:2003)]){
   d <- retrieveGeneExpr(dataNorm.corr, meta, gene=i)
-  plots[[j]] <- ggplot(d, aes(x=somite, y=count)) + geom_boxplot(aes(fill=somite)) + scale_fill_brewer(palette = "Purples") + ggtitle(i) + theme(legend.position="none") + ylab("CPM")
+  plots[[j]] <- ggplot(d, aes(x=as.factor(stage), y=count)) + geom_boxplot(aes(fill=as.factor(stage))) + scale_fill_brewer(palette = "Purples") + ggtitle(i) + theme(legend.position="none") + ylab("CPM")
   j <- j+1
 }
 multiplot(plotlist = plots, cols=3)
 ```
 
+#### Conclusions
 
+So based on all these, we can conclude that using the PCA approach greatly increases our statistical power to identify DE genes. The increase is such that we identify genes that are not really that different between conditions, and so it is necessary to apply a minimum fold-change threshold to get sensible results.
 
 
 
