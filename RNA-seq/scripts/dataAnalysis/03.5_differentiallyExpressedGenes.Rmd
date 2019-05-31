@@ -19,7 +19,9 @@ library(edgeR)
 library(limma)
 library(ggplot2)
 library(RColorBrewer)
+library(gplots)
 library(UpSetR)
+library(dynamicTreeCut)
 library(topGO)
 
 dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
@@ -129,7 +131,7 @@ somiteTrios.all <- union(somiteTrios.all, row.names(somiteTrios.stage[["stage25"
 somiteTrios.all <- union(somiteTrios.all, row.names(somiteTrios.stage[["stage27"]]))
 somiteTrios.all <- union(somiteTrios.all, row.names(somiteTrios.stage[["stage35"]]))
 
-somiteTrios.all <- as.data.frame(somiteTrios.all)
+somiteTrios.all <- as.data.frame(somiteTrios.all, stringsAsFactors=FALSE)
 colnames(somiteTrios.all) <- "ID"
 somiteTrios.all$gene <- data[somiteTrios.all$ID,1]
 somiteTrios.all$average <- ifelse(somiteTrios.all$ID %in% somiteTrios.ave.all, 1, 0)
@@ -151,19 +153,87 @@ There are some cases of true stage specificity, but these are rare.
 upset(somiteTrios.all[somiteTrios.all$average==0,], nsets=6, nintersects = 100, sets.x.label = "number DE genes per stage")
 ```
 
+#### Expression dynamics
+
+From what we've observed, we expet most genes to be monotonically up/downregulated. To characterise the expression dynamics across the somite trios, we take the overall pattern across all stages, and fit a loess curve to each DE gene. we then cluster the curves to identify the prevalent patterns in the data.
+
+A rough clustering results in 6 groups, which capture the general dynamics of expression.
+
+```{r somiteTrios_fit}
+## fit loess
+stopifnot(identical(meta$sample, colnames(dataNorm)[-1]))
+somite <- as.factor(meta$somite)
+dat <- 2^dataNorm[as.character(somiteTrios.all$ID),-1]
+fits <- apply(dat, 1, function(x) stats::lowess(x~somite))
+
+curves <- unique(as.data.frame(lapply(fits, '[', 2)))
+colnames(curves) <- names(fits)
+row.names(curves) <- paste0("somite",c("I","II","III"))
+
+## cluster
+curvesStd <- t(apply(t(curves), 1, function(x) x/max(x)))  # standarise
+test <- cor(t(curvesStd), method="spearman")
+test.dissim <- sqrt(0.5*((1-test)))
+test.dist <- as.dist(test.dissim)
+test.clust <- hclust(test.dist, method="average")
+
+clust.genes <- cutreeDynamic(test.clust, distM=as.matrix(test.dist), minClusterSize=100, method="hybrid", deepSplit = 1, verbose = 0)
+names(clust.genes) <- row.names(curvesStd)
+# table(clust.genes)
+
+plots <- list()
+for(c in 1:max(clust.genes)){
+  g <- names(clust.genes[clust.genes==c])
+  test <- curvesStd[g,]
+  mean <- colMeans(test)
+  std <- apply(test, 2, sd)
+  df.sub <- data.frame(x=1:3, ymin=mean-std, ymax=mean+std)
+  df.sub.avg <- data.frame(x=1:3, y=mean)
+  plots[[c]] <- ggplot() + geom_line(data=df.sub.avg, aes(x,y), colour="black" , size=1) +
+    geom_ribbon(data=df.sub, aes(x=x,ymin=ymin,ymax=ymax), alpha=0.2, fill="black") +
+    xlab(expression("somite")) + ylab(expression("expression")) + ggtitle(paste("Cluster", c, "-", nrow(test), "genes")) + ylim(0,1.2) +
+    theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + theme(legend.position = "none")
+}
+multiplot(plotlist = plots, cols = 3)
+```
+
+A large portion of the expeted genes monotonical up or downregulated along differentiation, but also many that are expressed differently in a particular somite.
+
+Visualising every gene in each cluster reveals the dynamics of each more clearly:
+
+```{r somteTrios_clusters}
+par(mfrow=c(2,3))
+for(c in 1:max(clust.genes)){
+  g <- names(clust.genes[clust.genes==c])
+  test <- curvesStd[g,]
+  plot(test[1,], type="l", axes=FALSE, xlab="", ylab="", main=paste("Cluster",c,"-",length(g),"genes"))
+  box(bty="l"); axis(1, at=1:3, labels=c("SI","SII","SIII")); mtext(side=2, line=1, "relative expression", cex=0.8)
+  for(i in 2:nrow(test)){
+    par(new=T)
+    plot(test[i,], type="l", axes=FALSE, xlab="", ylab="")
+  }
+}
+```
+
+The genes being up or downregulated (first two clusters) do so with varying rate, where the increase/decay in expression is more or less abrupt. Similarly, we observe genes that are expressed the lowest in somiteI (cluster5), somiteII (cluster3 and 6) and somiteIII (cluster4) and that have different levels of expression in the other somites, from similarly high in both, to quite different levels. 
+
+```{r somiteTrios_heatmap}
+heatmap.2(curvesStd[names(clust.genes[order(clust.genes)]),], trace="none", RowSideColors = as.character(clust.genes[names(clust.genes[order(clust.genes)])]), Rowv = FALSE, dendrogram = "none", col=brewer.pal(n=9, "Blues"), labRow = rep("", nrow(curvesStd)), cexCol = 0.8)
+```
+
+
 #### Biological processes
 
-We can use gene ontology enrichment analysis to determine what these genes are involved in. We check for significant enrichments considering all `r nrow(somiteTrios.all)` genes that are significant in either the average or stage-specific tests. Not surprisingly, many terms related to developmental are highly significant. These include patterning and segmentation, differentiation and morphogenesis, and many different organs. 
+Now let's explore what these DE genes are and their possible functions. We can use gene ontology enrichment analysis to determine this. We check for significant enrichments considering all `r nrow(somiteTrios.all)` genes that are significant in either the average or stage-specific tests. Not surprisingly, many terms related to development are highly significant. These include patterning and segmentation, differentiation and morphogenesis, and many different organs. 
 
-```{r somiteTrios_GO}
+```{r somiteTrios_GO, message=FALSE}
 universe <- row.names(dataNorm)
 all <- as.factor(as.numeric(universe %in% somiteTrios.all$ID))
 names(all) <- universe
-table(all)
 
 go.all <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
 go.all.test <- runTest(go.all, algorithm = "classic", statistic = "Fisher" )
-go.all.res <- GenTable(go.all, Fisher.classic = go.all.test, topNodes = length(score(go.all.test)), numChar=60)
+go.all.res <- GenTable(go.all, Fisher.classic = go.all.test, topNodes = length(score(go.all.test)))
 go.all.res$Fisher.classic.adj <- p.adjust(go.all.res$Fisher.classic, "fdr")
 go.all.res[c(3,5,9,10,13,14,19,20,22,23,24,33,34,38,39,40,46,49,53,59),]
 
@@ -173,17 +243,281 @@ go.all.res[c(3,5,9,10,13,14,19,20,22,23,24,33,34,38,39,40,46,49,53,59),]
 
 Given the large redundance between GO terms, it'll take more detailed examination of the actual genes involved in these terms to determine their likely function in the context of the somites.
 
+We can also restrict the analysis to the different clusters we've identified.
+
+##### Cluster 1
+
+These are genes that are downregulated as somites differentiate. The significant terms are very much related to somitogenesis, patterning and regionalisation, and less so to more general development terms. This suggests that many of the genes controlling the segmentation process are *lost* after the somite is segmented.
+
+```{r somiteTrios_GO_downregulated, message=FALSE}
+all <- as.factor(as.numeric(universe %in% as.vector(names(clust.genes[clust.genes==1]))))
+names(all) <- universe
+# table(all)
+
+go.clust1 <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.clust1.test <- runTest(go.clust1, algorithm = "classic", statistic = "Fisher" )
+go.clust1.res <- GenTable(go.clust1, Fisher.classic = go.clust1.test, topNodes = length(score(go.clust1.test)))
+go.clust1.res$Fisher.classic.adj <- p.adjust(go.clust1.res$Fisher.classic, "fdr")
+go.clust1.res[c(1:6,9,11,12,16,17,20,21,24,27),]
+```
+
+##### Cluster 2
+
+This cluster contains the genes that are upregulated as maturation proceeds. In this case, the significant terms are much more related to adhesion and migration, broad developmental processes and organogenesis, and vasculature development. This suggests cells are aquiring the properties to reorganise themselves and migrate.
+
+```{r somiteTrios_GO_upregulated, message=FALSE}
+all <- as.factor(as.numeric(universe %in% names(clust.genes[clust.genes==2])))
+names(all) <- universe
+# table(all)
+
+go.clust2 <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.clust2.test <- runTest(go.clust2, algorithm = "classic", statistic = "Fisher" )
+go.clust2.res <- GenTable(go.clust2, Fisher.classic = go.clust2.test, topNodes = length(score(go.clust2.test)))
+go.clust2.res$Fisher.classic.adj <- p.adjust(go.clust2.res$Fisher.classic, "fdr")
+go.clust2.res[c(1,5,10,11,12,15,16,18,20,24,29,39,47,48,54,70),]
+
+```
+
+##### Cluster 4
+
+These genes are expressed early (somites I and II) but are downregulated in the most mature somite. There are no terms that reach significant after multitesting correction.
+
+```{r somiteTrios_GO_early, message=FALSE}
+all <- as.factor(as.numeric(universe %in% names(clust.genes[clust.genes==4])))
+names(all) <- universe
+# table(all)
+
+go.clust4 <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.clust4.test <- runTest(go.clust4, algorithm = "classic", statistic = "Fisher" )
+go.clust4.res <- GenTable(go.clust4, Fisher.classic = go.clust4.test, topNodes = length(score(go.clust4.test)))
+go.clust4.res$Fisher.classic.adj <- p.adjust(go.clust4.res$Fisher.classic, "fdr")
+```
+
+##### Cluster 5
+
+These genes are expressed late (somites II and III) but are downregulated in the most immature somite. There are no terms that reach significant after multitesting correction.
+
+```{r somiteTrios_GO_late, message=FALSE}
+all <- as.factor(as.numeric(universe %in% names(clust.genes[clust.genes==5])))
+names(all) <- universe
+# table(all)
+
+go.clust5 <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.clust5.test <- runTest(go.clust5, algorithm = "classic", statistic = "Fisher" )
+go.clust5.res <- GenTable(go.clust5, Fisher.classic = go.clust5.test, topNodes = length(score(go.clust5.test)))
+go.clust5.res$Fisher.classic.adj <- p.adjust(go.clust5.res$Fisher.classic, "fdr")
+```
+
+##### Clusters 3 and 6
+
+These genes are expressed the lowest in the middle somite, with varying levels in the other two. The significant terms are a combination of those seen in clusters 1 and 2, including both segmentation and patterning related terms, and adhesion, migration and organogenesis terms. But also, some more specific terms related to development of the derivatives of somites.
+
+```{r somiteTrios_GO_late, message=FALSE}
+all <- as.factor(as.numeric(universe %in% names(clust.genes[clust.genes %in% c(3,6)])))
+names(all) <- universe
+# table(all)
+
+go.clust6 <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.clust6.test <- runTest(go.clust6, algorithm = "classic", statistic = "Fisher" )
+go.clust6.res <- GenTable(go.clust6, Fisher.classic = go.clust6.test, topNodes = length(score(go.clust6.test)))
+go.clust6.res$Fisher.classic.adj <- p.adjust(go.clust6.res$Fisher.classic, "fdr")
+go.clust6.res[c(3,6,7,10,11,13,14,15,17,19,28,41,45,64,69,70,78,82,97,100,103,105,107),]
+```
+
+For these genes, it is unclear how significant is the downregulation in somiteII and whether this is necessary or instead a reflection of highly variable, maybe noisier, genes.
+
+
+### Developmental changes
+
+After somites are segmented they start differentiating and mature to eventually produced all the necessary derivatives that will create bone, muscle and skin, among other structures. Together with this process, the embryo is growing and developing, so there is a concomitant progression in developmental age, and the somites generated at different stages of development will generate slightly different structures.
+
+To study this, we now use differential expression analysis to identify the genes that are dynamic across developmental time. We test this both in a somite-specific manner, and taking the average of all three somites from the same stage and recovering genes that are different between any pair of stages.
+
+```{r stages}
+## somite-specific changes
+stages.somite <- list()
+for(contrast in paste0("somite", c("I", "II", "III"))){
+  stages.somite[[contrast]] <- read.table(paste0(dir, "RNA-seq/results/03.3_DEresults_stage_",contrast,"_pca.tsv"), stringsAsFactors = FALSE)
+  stages.somite[[contrast]] <- stages.somite[[contrast]][stages.somite[[contrast]]$FDR < 0.05,]
+  stages.somite[[contrast]]$logFC.max <- sapply(1:nrow(stages.somite[[contrast]]), function(x) stages.somite[[contrast]][x,which.max(abs(stages.somite[[contrast]][x,2:16]))+1])
+  stages.somite[[contrast]] <- stages.somite[[contrast]][abs(stages.somite[[contrast]]$logFC.max) > log2(2),]
+}
+nDE <- unlist(lapply(stages.somite, nrow))
+nDE
+
+## average across somites
+stages.ave <- read.table(paste0(dir, "RNA-seq/results/03.3_DEresults_stage_all_pca.tsv"), stringsAsFactors = FALSE)
+stages.ave <- stages.ave[stages.ave$FDR<0.05,]
+stages.ave$logFC.max <- sapply(1:nrow(stages.ave), function(x) stages.ave[x,which.max(abs(stages.ave[x,2:16]))+1])
+stages.ave <- stages.ave[abs(stages.ave$logFC.max) > log2(2),]
+nDE <- nrow(stages.ave)
+names(nDE) <- "average"
+nDE
+```
+
+Taking the somite trios as replicates is reasonable given that we've seen only a few thousand genes are DE between them, and their differences are quite small. Still, we first check whether there are changes that only occur in a given somite level.
+
+While the majority of the genes significant in a specific somite level are also significant in the averaged test, there are arouns a thousand genes per somite that are not identified when taking the average.
+
+```{r somite-specific}
+stages.all <- union(row.names(stages.ave), row.names(stages.somite[["somiteI"]]))
+stages.all <- union(stages.all, row.names(stages.somite[["somiteII"]]))
+stages.all <- union(stages.all, row.names(stages.somite[["somiteIII"]]))
+
+stages.all <- as.data.frame(stages.all, stringsAsFactors=FALSE)
+colnames(stages.all) <- "ID"
+stages.all$gene <- data[as.character(stages.all$ID),1]
+stages.all$average <- ifelse(stages.all$ID %in% row.names(stages.ave), 1, 0)
+stages.all$somiteI <- ifelse(stages.all$ID %in% row.names(stages.somite[["somiteI"]]) & stages.all$average == 0, 1, 0)
+stages.all$somiteII <- ifelse(stages.all$ID %in% row.names(stages.somite[["somiteII"]]) & stages.all$average == 0, 1, 0)
+stages.all$somiteIII <- ifelse(stages.all$ID %in% row.names(stages.somite[["somiteIII"]]) & stages.all$average == 0, 1, 0)
+colSums(stages.all[,-c(1:2)])
+```
+
+And from these, the majority are identified in only one somite level.
+
+```{r somite-specific_overlap}
+venn(data=list(somiteI=stages.all[stages.all$somiteI==1,1], somiteII=stages.all[stages.all$somiteII==1,1], somiteIII=stages.all[stages.all$somiteIII==1,1]))
+```
+
+However, as before, more often than not, genes significant in only one somite show the same or similar trends in the other somites, just don't reach significance. Overall, it seems again that the somite-specific changes are very few.
+
+#### Expression dynamics
+
+```{r stages_fit}
+## fit loess
+stopifnot(identical(meta$sample, colnames(dataNorm)[-1]))
+stage <- factor(paste0("stage",meta$stage))
+dat <- 2^dataNorm[as.character(stages.all$ID),-1]
+fits <- apply(dat, 1, function(x) stats::lowess(x~stage))
+
+curves <- unique(as.data.frame(lapply(fits, '[', 2)))
+colnames(curves) <- names(fits)
+row.names(curves) <- paste0("stage",c(8,18,21,25,27,35))
+
+## cluster
+curvesStd <- t(apply(t(curves), 1, function(x) x/max(x)))  # standarise
+test <- cor(t(curvesStd), method="spearman")
+test.dissim <- sqrt(0.5*((1-test)))
+test.dist <- as.dist(test.dissim)
+test.clust <- hclust(test.dist, method="average")
+
+clust.genes <- cutreeDynamic(test.clust, distM=as.matrix(test.dist), minClusterSize=200, method="hybrid", deepSplit = 1, verbose = 0)
+names(clust.genes) <- row.names(curvesStd)
+# table(clust.genes)
+
+plots <- list()
+for(c in 1:max(clust.genes)){
+  g <- names(clust.genes[clust.genes==c])
+  test <- curvesStd[g,]
+  mean <- colMeans(test)
+  std <- apply(test, 2, sd)
+  df.sub <- data.frame(x=1:6, ymin=mean-std, ymax=mean+std)
+  df.sub.avg <- data.frame(x=1:6, y=mean)
+  plots[[c]] <- ggplot() + geom_line(data=df.sub.avg, aes(x,y), colour="black" , size=1) +
+    geom_ribbon(data=df.sub, aes(x=x,ymin=ymin,ymax=ymax), alpha=0.2, fill="black") +
+    xlab(expression("somite")) + ylab(expression("expression")) + ggtitle(paste("Cluster", c, "-", nrow(test), "genes")) + ylim(0,1.2) +
+    theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + theme(legend.position = "none")
+}
+multiplot(plotlist = plots, cols = 4)
+```
 
 
 
 
+```{r somteTrios_clusters, fig.width=10, fig.height=6}
+par(mfrow=c(3,5))
+for(c in 1:max(clust.genes)){
+  g <- names(clust.genes[clust.genes==c])
+  test <- curvesStd[g,]
+  plot(test[1,], type="l", axes=FALSE, xlab="", ylab="", main=paste("Cluster",c,"-",length(g),"genes"))
+  box(bty="l"); axis(1, at=1:6, labels=c(8,18,21,25,27,35)); mtext(side=1, line=2, "stage", cex=0.8); mtext(side=2, line=1, "relative expression", cex=0.8)
+  for(i in 2:nrow(test)){
+    par(new=T)
+    plot(test[i,], type="l", axes=FALSE, xlab="", ylab="")
+  }
+}
+```
 
 
+#### Biological processes
 
 
+```{r somiteTrios_GO, message=FALSE}
+all <- as.factor(as.numeric(universe %in% stages.all$ID))
+names(all) <- universe
+# table(all)
+
+go.all <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.all.test <- runTest(go.all, algorithm = "classic", statistic = "Fisher" )
+go.all.res <- GenTable(go.all, Fisher.classic = go.all.test, topNodes = length(score(go.all.test)))
+go.all.res$Fisher.classic.adj <- p.adjust(go.all.res$Fisher.classic, "fdr")
+go.all.res[c(3,5,9,10,13,14,19,20,22,23,24,33,34,38,39,40,46,49,53,59),]
+```
+
+```{r}
+stage.means <- data.frame(stage8=rowMeans(dataNorm[stages.all$ID,which(meta$stage==8)+1]),
+                          stage18=rowMeans(dataNorm[stages.all$ID,which(meta$stage==18)+1]),
+                          stage21=rowMeans(dataNorm[stages.all$ID,which(meta$stage==21)+1]),
+                          stage25=rowMeans(dataNorm[stages.all$ID,which(meta$stage==25)+1]),
+                          stage27=rowMeans(dataNorm[stages.all$ID,which(meta$stage==27)+1]),
+                          stage35=rowMeans(dataNorm[stages.all$ID,which(meta$stage==35)+1]))
+plot(as.numeric(stage.means[1,]), type="l")
+plot(as.numeric(stage.means[2,]), type="l")
+cor(as.numeric(stage.means[1,]), as.numeric(stage.means[2,]))
+
+cors <- cor(t(stage.means), method="spearman")
+test.dissim <- sqrt(0.5*((1-cors)))
+test.dist <- as.dist(test.dissim)
+test.clust <- hclust(test.dist, method="average")
+
+clust.genes <- cutreeDynamic(test.clust, distM=as.matrix(test.dist), minClusterSize=200, method="hybrid", deepSplit = 1, verbose = 0)
+names(clust.genes) <- row.names(stage.means)
+# table(clust.genes)
+
+plots <- list()
+for(c in 1:max(clust.genes)){
+  g <- names(clust.genes[clust.genes==c])
+  test <- curvesStd[g,]
+  mean <- colMeans(test)
+  std <- apply(test, 2, sd)
+  df.sub <- data.frame(x=1:6, ymin=mean-std, ymax=mean+std)
+  df.sub.avg <- data.frame(x=1:6, y=mean)
+  plots[[c]] <- ggplot() + geom_line(data=df.sub.avg, aes(x,y), colour="black" , size=1) +
+    geom_ribbon(data=df.sub, aes(x=x,ymin=ymin,ymax=ymax), alpha=0.2, fill="black") +
+    xlab(expression("somite")) + ylab(expression("expression")) + ggtitle(paste("Cluster", c, "-", nrow(test), "genes")) + ylim(0,1.2) +
+    theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + theme(legend.position = "none")
+}
+multiplot(plotlist = plots, cols = 4)
+```
 
 
+```{r somteTrios_clusters, fig.width=10, fig.height=6}
+par(mfrow=c(3,5))
+for(c in 1:max(clust.genes)){
+  g <- names(clust.genes[clust.genes==c])
+  test <- stage.means[g,]
+  plot(as.numeric(test[1,]), type="l", axes=FALSE, xlab="", ylab="", main=paste("Cluster",c,"-",length(g),"genes"))
+  box(bty="l"); axis(1, at=1:6, labels=c(8,18,21,25,27,35)); mtext(side=1, line=2, "stage", cex=0.8); mtext(side=2, line=1, "relative expression", cex=0.8)
+  for(i in 2:nrow(test)){
+    par(new=T)
+    plot(as.numeric(test[i,]), type="l", axes=FALSE, xlab="", ylab="")
+  }
+}
+```
 
+```{r}
+pca <- prcomp(t(dataNorm[stages.all$ID,-1]))
+plot(pca$x[,1], pca$x[,2], col=as.factor(meta$stage), pch=as.numeric(factor(meta$somite, labels = 1:3)))
+legend("topleft", legend = c(8,18,21,25,27,35), col=1:6, pch=16, cex=0.7)
+legend("topright", legend = c("SI","SII","SIII"), pch=1:3, cex=0.7)
+
+pca <- prcomp(t(dataNorm[somiteTrios.all$ID,-1]))
+plot(pca$x[,1], pca$x[,2], col=as.factor(meta$stage), pch=as.numeric(factor(meta$somite, labels = 1:3)))
+legend("topleft", legend = c(8,18,21,25,27,35), col=1:6, pch=16, cex=0.7)
+legend("topright", legend = c("SI","SII","SIII"), pch=1:3, cex=0.7)
+
+```
 
 
 
