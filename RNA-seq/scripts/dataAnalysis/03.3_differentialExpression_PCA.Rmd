@@ -374,8 +374,8 @@ my.contrasts <- makeContrasts(stage8vs18 = stage18.SI - stage8.SI, stage8vs21 = 
                               stage18vs27 = stage27.SI - stage18.SI, stage18vs35 = stage35.SI - stage18.SI, 
                               stage21vs25 = stage25.SI - stage21.SI, stage21vs27 = stage27.SI - stage21.SI, 
                               stage21vs35 = stage35.SI - stage21.SI, 
-                              stage25vs27 = stage27.SI - stage25.SI, 
-                              stage27vs35 = stage27.SI - stage35.SI, levels=design)
+                              stage25vs27 = stage27.SI - stage25.SI, stage25vs35 = stage35.SI - stage25.SI, 
+                              stage27vs35 = stage35.SI - stage27.SI, levels=design)
 test <- glmQLFTest(fit, contrast = my.contrasts)
 somiteI <- as.data.frame(topTags(test, n=Inf))
 
@@ -386,8 +386,8 @@ my.contrasts <- makeContrasts(stage8vs18 = stage18.SII - stage8.SII, stage8vs21 
                               stage18vs27 = stage27.SII - stage18.SII, stage18vs35 = stage35.SII - stage18.SII, 
                               stage21vs25 = stage25.SII - stage21.SII, stage21vs27 = stage27.SII - stage21.SII, 
                               stage21vs35 = stage35.SII - stage21.SII, 
-                              stage25vs27 = stage27.SII - stage25.SII, 
-                              stage27vs35 = stage27.SII - stage35.SII, levels=design)
+                              stage25vs27 = stage27.SII - stage25.SII, stage25vs35 = stage35.SII - stage25.SII, 
+                              stage27vs35 = stage35.SII - stage27.SII, levels=design)
 test <- glmQLFTest(fit, contrast = my.contrasts)
 somiteII <- as.data.frame(topTags(test, n=Inf))
 
@@ -398,8 +398,8 @@ my.contrasts <- makeContrasts(stage8vs18 = stage18.SIII - stage8.SIII, stage8vs2
                               stage18vs27 = stage27.SIII - stage18.SIII, stage18vs35 = stage35.SIII - stage18.SIII, 
                               stage21vs25 = stage25.SIII - stage21.SIII, stage21vs27 = stage27.SIII - stage21.SIII, 
                               stage21vs35 = stage35.SIII - stage21.SIII, 
-                              stage25vs27 = stage27.SIII - stage25.SIII, 
-                              stage27vs35 = stage27.SIII - stage35.SIII, levels=design)
+                              stage25vs27 = stage27.SIII - stage25.SIII, stage25vs35 = stage35.SIII - stage25.SIII, 
+                              stage27vs35 = stage35.SIII - stage27.SIII, levels=design)
 test <- glmQLFTest(fit, contrast = my.contrasts)
 somiteIII <- as.data.frame(topTags(test, n=Inf))
 
