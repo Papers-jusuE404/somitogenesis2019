@@ -1,0 +1,231 @@
+---
+title: "Hox gene expression"
+date: "3 June 2019"
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(edgeR)
+library(limma)
+library(ggplot2)
+library(RColorBrewer)
+library(gplots)
+library(topGO)
+
+dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+
+palette(c(brewer.pal(n=8, "Set2"), brewer.pal(n=9, "Set1")))
+
+#### FUNCTIONS
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols), byrow = TRUE)
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+Hox genes are critical in imparting somite identity. In mouse, there are 13 different genes (1 to 13), each with up to four paralogs (A to D). As such, there is substantial redundancy in their expression patterns and function. Hox genes form each paralogous group are clustered and ordered from 1 to 13. The first Hox genes are expressed the earliest and subsequent genes are expressed later in development. That is, Hox1 genes are the first to be expressed and Hox13 are the last.
+
+Each somite has a specific combination of Hox gene expression, with earlier somites having predominantly expression from early Hox genes, whilst these are downregulated in later somites that instead express later Hox genes. Such combinatorial code gives a specific identity to each somite and determines the type of structures it will develop into, i.e. cervical, thoracic, lumbar, sacral or caudal derivatives. When the Hox combinatorial code is altered the *wrong* structures develop.
+
+Little is known about the regulation of Hox gene expression and, even less, of what downstream targets are regulated by Hox factors. This dataset provides an interesting setup to explore these questions.
+
+### Data
+
+We have the complete transcriptome of individual mouse somites spanning early (8 somites) to late (35 somites) development. At each stage, we have sequenced the last three somites that were segmented (with somiteI being the most recent, and somiteIII the one segmented two cycles before). 
+
+```{r data}
+# metadata
+meta <- read.table(paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+meta <- meta[meta$use==1,]
+
+# raw data
+data <- read.table(paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"))
+y <- readRDS(paste0(dir, "RNA-seq/results/01_edgeRobject.Rds"))
+
+# normalised data
+dataNorm <- cpm(y, log = TRUE, prior.count = 1)
+
+# remove batch effect
+pcs <- read.table(paste0(dir, "RNA-seq/results/02_pcs_residuals.tab"))
+dataNorm <- removeBatchEffect(dataNorm, design = model.matrix(~0+group, meta), covariates = pcs[,1:14])
+dataNorm <- cbind(data[match(row.names(dataNorm), row.names(data)),1], as.data.frame(dataNorm))
+colnames(dataNorm)[1] <- "gene"
+
+table(meta$somite, stage=meta$stage)
+```
+
+Given the stages we have sampled we should have a good representation of the Hox code, with representation of most, if not all, Hox genes.
+
+### Hox gene expression
+
+Simply plotting the relative expression of all Hox genes across the samples we see good clustering of the samples based on their stage, represented by the colour band at the top:
+
+- green = cervical (stage8)
+- light blue = thoracic (stag18)
+- blue = thoracic (stage21)
+- orange = lumbar (stage25)
+- dark orange = lumbar (stage27)
+- red = sacral (stage35)
+
+For each gene, we have subtracted the mean expression across all samples to standardise the data.
+
+```{r hoxGenes, fig.width=5, fig.height=5}
+hox <- dataNorm[grep("^Hox",dataNorm$gene),]
+hox <- hox[grep("s", hox$gene, invert=TRUE),] # remove antisense and non-coding genes
+row.names(hox) <- hox$gene
+hox$gene <- NULL
+
+hox.cnt <- t(apply(hox, 1, function(x) x-mean(x)))
+# hox.cnt <- t(apply(hox, 1, function(x) (x-min(x))/(max(x)-min(x)) ))
+
+cols <- as.character(factor(meta$stage, labels = c("darkolivegreen4", "skyblue", "steelblue2", "darkorange", "darkorange2", "indianred1")))
+hc <- hclust(dist(t(as.matrix(hox.cnt))))
+order.col <- hc$order[c(1:48,65:76,49:64)]
+hc <- hclust(dist(as.matrix(hox.cnt)))
+order.row <- hc$order
+heatmap.2(as.matrix(hox.cnt[order.row,order.col]), trace="none", col=brewer.pal(n=8, name="Blues"), ColSideColors = cols[order.col], Colv = FALSE, dendrogram = "none", labCol = rep("",ncol(hox.cnt)), Rowv = FALSE)
+```
+
+Cervical somite express only Hox genes 1-5 and these genes decrease in expression as development proceeds. Thoracic somites express genes 7-9. Lumbar somites maintain expression of genes 7-9 but also turn on Hox10 and the latest ones Hox11 (dark orange). Finally, sacral somites express genes 10 to 13, with 12 and 13 being specific to them.
+
+And given that the expression of the Hox genes is so consistent with the stage, a PCA on only these `r nrow(hox)` genes recapitulates the developmental progression of the samples.
+
+```{r hox_pca, fig.width=6,fig.height=5}
+pca <- prcomp(t(hox))
+df <- as.data.frame(pca$x)
+ggplot(df, aes(PC1, PC2, colour=as.factor(meta$stage), shape=meta$somite)) + geom_point(cex=2) + labs(colour="stage", shape="somite") + scale_color_manual(values = c("darkolivegreen4", "skyblue", "steelblue2", "darkorange", "darkorange2", "indianred1"))
+```
+
+### Possible targets of Hox factors
+
+Since we have the complete transcriptome of these somites, we can identify genes that covary with Hox expression. These could be directly or indirectly regulated by Hox factors. To do this we compute the Spearman correlation between every Hox gene and all other genes expressed at moderate to high levels.
+
+```{r}
+stopifnot(identical(colnames(dataNorm)[-1], meta$sample))
+
+plot(density(rowMeans(dataNorm[,-1])), main="mean expression all genes", bty="l")
+abline(v=1.5, lty=2)
+keep <- rowMeans(dataNorm[,-1])>1.5
+# summary(keep) # 10905
+```
+
+That is `r sum(keep)` genes. The significance of the correlation is assessed based on a null distribution constructed from the randomised expression of each gene. 
+
+About a third of all pairs are deemed significant.
+
+```{r corrPairs}
+## use scran's correlatePairs function. 
+## since scran cannot be installed in the server, I ran this locally and load here the results
+## for reference: 
+# ## only find correlations to non-HOX genes 
+# tmp <- dataNorm[keep,]
+# hox.idx <- which(row.names(tmp) %in% row.names(hox))
+# tmp <- tmp[-hox.idx,]
+# pairs <- matrix(c(rep(row.names(hox), each=nrow(tmp)), rep(row.names(tmp), nrow(hox))), ncol=2)
+# 
+# ## compute correlations
+# tmp <- rbind(hox, tmp)
+# set.seed(3957)
+# corrs <- correlatePairs(as.matrix(tmp[,-1]), pairings = pairs, iters = 1e7)
+corrs <- read.table(paste0(dir, "RNA-seq/results/04.1_Hox_correlatedGenes.tsv"), stringsAsFactors = FALSE, header = TRUE)
+summary(corrs$FDR<0.05)
+
+corrs.sig <- corrs[corrs$FDR<0.05,]
+# nrow(corrs.sig) # 153415 significant pairs
+# length(unique(corrs.sig$gene2)) # 10197 different genes 
+```
+
+This represents `r length(unique(corrs.sig$gene2))` different non-Hox genes. Each Hox gene is involved in around four thousand significant pairs, but the variation is quite large:
+
+```{r sigPairs, fig.width=7}
+t <- table(corrs.sig$gene1)
+names(t) <- dataNorm[match(names(t), row.names(dataNorm)),1]
+plot(t[order(t, decreasing = TRUE)], las=2, ylab="significant pairs")
+```
+
+The correlation values for the significant pairs are as low as 0.27, so there is large potential to narrow down the list of significant pairs to only strongly correlated genes.
+
+```{r rho}
+plot(density(corrs.sig$rho), main="Spearman's rho", axes=FALSE)
+box(bty="l"); axis(2); axis(1, at=seq(-1,1,0.25), labels = seq(-1,1,0.25))
+abline(v=c(-0.25,0.25), lty=2)
+```
+
+For example, if we restrict only to gene pairs with absolute correlation coefficients of 0.5 or higher the number of pairs decreases to `r nrow(corrs.sig[abs(corrs.sig$rho)>0.5,])`, comprising `r length(unique(corrs.sig[abs(corrs.sig$rho)>0.5,]$gene2))` different non-Hox genes.
+
+This affects the correlations with certain Hox genes much more than others, loosing most of the significant pairs for a number of Hox factors, and the rest being involved in a few hundred to a couple thousand gene pairs.
+
+```{r minRho, fig.width=7}
+corrs.sig.min <- corrs.sig[abs(corrs.sig$rho)>0.5,]
+# dim(corrs.sig.min) # 34425
+# length(unique(corrs.sig.min$gene2)) # 4954
+
+t <- table(corrs.sig.min$gene1)
+names(t) <- dataNorm[match(names(t), row.names(dataNorm)),1]
+plot(t[order(t, decreasing = TRUE)], las=2, ylab="significant pairs (|rho|>0.5)")
+```
+
+These ~5,000 genes correlated to Hox expression are involved in core processes such as metabolism, transcription, translation and cell cycle; less significant terms relate to development of certain organ systems.
+
+```{r go, message=FALSE, warning=FALSE}
+genes <- unique(corrs.sig.min$gene2)
+
+universe <- row.names(dataNorm)
+all <- as.factor(as.numeric(universe %in% genes))
+names(all) <- universe
+
+go <- new("topGOdata", ontology="BP", allGenes = all, nodeSize=5, annot=annFUN.org, mapping="org.Mm.eg.db", ID = "ensembl")
+go.test <- runTest(go, algorithm = "classic", statistic = "Fisher" )
+go.res <- GenTable(go, Fisher.classic = go.test, topNodes = length(score(go.test)))
+go.res$Fisher.classic.adj <- p.adjust(go.res$Fisher.classic, "fdr")
+go.res[c(1,14,18,19,20,74,79,90,128,142,153,197,199,207,208,230,268,274),]
+```
+
+This indicates that we are picking up many spurious correlations, that probably reflect the changes in regulation of core processes as development proceeds, instead of regulation by Hox factors. And that is the tricky part here: since Hox expression is strongly correlated with developmental correlation, it is impossible to separate the two.
+
+However, we have matched ATAC-seq data from the same samples, so we can look for the genes within this list that have binding sites for Hox factors in their promoters, and that are open. These are much more plausible candidates for direct regulation and, maybe, more informative.
+
+We will tackle this question in the transcription factor analysis of the ATAC-seq peaks.
+
+```{r info}
+sessionInfo()
+```
