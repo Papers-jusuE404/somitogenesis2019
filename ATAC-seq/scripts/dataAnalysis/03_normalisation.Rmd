@@ -95,7 +95,7 @@ This resulted in `r length(peakSet)` called peaks, which can be used as a common
 We count the number of fragments mapped to these regions in each sample, to get a uniform measure of fraction of reads in peaks (FRiP) for all samples. Before, each sample had its own set of peaks, making their FRiPs non-comparable.
 
 ```{r peakCounts}
-param <- readParam(discard=blacklist, restrict=paste0("chr", c(1:19, "X")), pe="both", dedup=FALSE, BPPARAM=MulticoreParam(workers=24))
+param <- readParam(discard=blacklist, restrict=paste0("chr", c(1:19, "X")), pe="both", dedup=FALSE, BPPARAM=MulticoreParam(workers=12))
 peakCounts <- regionCounts(paste0(dir, "ATAC-seq/data/BWA/", bam.files), peakSet, param = param)
 saveRDS(peakCounts, paste0(dir, "ATAC-seq/results/03_peakCounts_all.Rds"))
 
@@ -295,7 +295,7 @@ svobj = sva(re.adjc, design, mod0, n.sv = n.sv)
 write.table(svobj$sv, paste0(dir, "ATAC-seq/results/03_svs_trendNormData.tab"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
 ```
 
-This sv is stongly correlated with the FRiP, and thus should remove the effects observed above.
+This sv is strongly correlated with the FRiP, and thus should remove the effects observed above.
 
 ```{r sv_vs_frip}
 plot(svobj$sv[,1], meta$readsInPeakSet/meta$goodQuality*100, xlab="SV1", ylab="FRiP", pch=16, bty="l")
@@ -303,10 +303,10 @@ plot(svobj$sv[,1], meta$readsInPeakSet/meta$goodQuality*100, xlab="SV1", ylab="F
 # cor(svobj$sv[,1], meta$goodQuality) # 0.28
 ```
 
-We can regress out this sv and redo the PCA with the corrected data. In this case, samples separate better by stage, and there is no correlation with FRiP in the first two components.
+We can regress out this sv and redo the PCA with the corrected data. In this case, samples separate a bit better by stage (PC3 separates 8 from 18 and 25 as its own group), and there is no correlation with FRiP in the first two components.
 
 ```{r PCAcorrected, fig.width=10, fig.height=8}
-norm.counts.corr <- removeBatchEffect(re.adjc, covariates = svobj$sv)
+norm.counts.corr <- removeBatchEffect(re.adjc, design = design, covariates = svobj$sv)
 
 # mds.norm.corr <- plotMDS(norm.counts.corr, top=5000, plot=FALSE)
 vars <- rowVars(norm.counts.corr)
@@ -341,11 +341,11 @@ pcs <- prcomp(t(res))
 write.table(pcs$x, paste0(dir, "ATAC-seq/results/03_pcs_residuals.tab"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
 ```
 
-Regressing out 18 PCs cleans the data very nicely. Now samples cluster by stage very well and there is no correlation with FRiP.
+Regressing out 18 PCs cleans the data very nicely. Now samples cluster by stage very well.
 
 ```{r PCAcorrectedPca, fig.width=10, fig.height=8}
 # plugging 're.adjc' into scran::parallelPCA() returns 18
-norm.counts.corr.pca <- removeBatchEffect(re.adjc, covariates = pcs$x[,1:18])
+norm.counts.corr.pca <- removeBatchEffect(re.adjc, design=design, covariates = pcs$x[,1:18])
 
 vars <- rowVars(norm.counts.corr.pca)
 tmp <- norm.counts.corr.pca[order(vars, decreasing=TRUE)[1:5000],]

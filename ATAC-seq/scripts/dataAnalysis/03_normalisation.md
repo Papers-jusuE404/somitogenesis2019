@@ -51,7 +51,7 @@ We count the number of fragments mapped to these regions in each sample, to get 
 
 
 ```r
-param <- readParam(discard=blacklist, restrict=paste0("chr", c(1:19, "X")), pe="both", dedup=FALSE, BPPARAM=MulticoreParam(workers=24))
+param <- readParam(discard=blacklist, restrict=paste0("chr", c(1:19, "X")), pe="both", dedup=FALSE, BPPARAM=MulticoreParam(workers=12))
 peakCounts <- regionCounts(paste0(dir, "ATAC-seq/data/BWA/", bam.files), peakSet, param = param)
 saveRDS(peakCounts, paste0(dir, "ATAC-seq/results/03_peakCounts_all.Rds"))
 
@@ -326,7 +326,7 @@ svobj = sva(re.adjc, design, mod0, n.sv = n.sv)
 write.table(svobj$sv, paste0(dir, "ATAC-seq/results/03_svs_trendNormData.tab"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
 ```
 
-This sv is stongly correlated with the FRiP, and thus should remove the effects observed above.
+This sv is strongly correlated with the FRiP, and thus should remove the effects observed above.
 
 
 ```r
@@ -340,11 +340,11 @@ plot(svobj$sv[,1], meta$readsInPeakSet/meta$goodQuality*100, xlab="SV1", ylab="F
 # cor(svobj$sv[,1], meta$goodQuality) # 0.28
 ```
 
-We can regress out this sv and redo the PCA with the corrected data. In this case, samples separate better by stage, and there is no correlation with FRiP in the first two components.
+We can regress out this sv and redo the PCA with the corrected data. In this case, samples separate a bit better by stage (PC3 separates 8 from 18 and 25 as its own group), and there is no correlation with FRiP in the first two components.
 
 
 ```r
-norm.counts.corr <- removeBatchEffect(re.adjc, covariates = svobj$sv)
+norm.counts.corr <- removeBatchEffect(re.adjc, design = design, covariates = svobj$sv)
 
 # mds.norm.corr <- plotMDS(norm.counts.corr, top=5000, plot=FALSE)
 vars <- rowVars(norm.counts.corr)
@@ -382,12 +382,12 @@ pcs <- prcomp(t(res))
 write.table(pcs$x, paste0(dir, "ATAC-seq/results/03_pcs_residuals.tab"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
 ```
 
-Regressing out 18 PCs cleans the data very nicely. Now samples cluster by stage very well and there is no correlation with FRiP.
+Regressing out 18 PCs cleans the data very nicely. Now samples cluster by stage very well.
 
 
 ```r
 # plugging 're.adjc' into scran::parallelPCA() returns 18
-norm.counts.corr.pca <- removeBatchEffect(re.adjc, covariates = pcs$x[,1:18])
+norm.counts.corr.pca <- removeBatchEffect(re.adjc, design=design, covariates = pcs$x[,1:18])
 
 vars <- rowVars(norm.counts.corr.pca)
 tmp <- norm.counts.corr.pca[order(vars, decreasing=TRUE)[1:5000],]
@@ -435,50 +435,48 @@ sessionInfo()
 ##  [8] datasets  methods   base     
 ## 
 ## other attached packages:
-##  [1] sva_3.26.0                  genefilter_1.60.0          
+##  [1] sva_3.30.1                  genefilter_1.64.0          
 ##  [3] mgcv_1.8-24                 nlme_3.1-137               
-##  [5] ggplot2_3.0.0               RColorBrewer_1.1-2         
-##  [7] edgeR_3.20.9                limma_3.38.3               
+##  [5] ggplot2_3.1.1               RColorBrewer_1.1-2         
+##  [7] edgeR_3.24.3                limma_3.38.3               
 ##  [9] csaw_1.16.1                 SummarizedExperiment_1.12.0
-## [11] DelayedArray_0.8.0          BiocParallel_1.12.0        
-## [13] matrixStats_0.54.0          Biobase_2.38.0             
+## [11] DelayedArray_0.8.0          BiocParallel_1.16.6        
+## [13] matrixStats_0.54.0          Biobase_2.42.0             
 ## [15] GenomicRanges_1.34.0        GenomeInfoDb_1.18.2        
 ## [17] IRanges_2.16.0              S4Vectors_0.20.1           
 ## [19] BiocGenerics_0.28.0        
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] httr_1.3.1               RMySQL_0.10.15          
-##  [3] splines_3.5.1            bit64_0.9-7             
-##  [5] assertthat_0.2.0         blob_1.1.1              
-##  [7] GenomeInfoDbData_1.0.0   Rsamtools_1.34.1        
-##  [9] yaml_2.2.0               progress_1.2.0          
-## [11] pillar_1.3.0             RSQLite_2.1.0           
-## [13] backports_1.1.2          lattice_0.20-35         
-## [15] glue_1.3.0               digest_0.6.15           
-## [17] XVector_0.22.0           colorspace_1.3-2        
-## [19] htmltools_0.3.6          Matrix_1.2-14           
-## [21] plyr_1.8.4               XML_3.98-1.15           
-## [23] pkgconfig_2.0.2          biomaRt_2.34.2          
-## [25] zlibbioc_1.24.0          xtable_1.8-2            
-## [27] purrr_0.2.5              scales_1.0.0            
-## [29] annotate_1.56.2          tibble_1.4.2            
-## [31] withr_2.1.2              GenomicFeatures_1.30.3  
-## [33] lazyeval_0.2.1           survival_2.42-6         
-## [35] magrittr_1.5             crayon_1.3.4            
-## [37] memoise_1.1.0            evaluate_0.11           
-## [39] tools_3.5.1              prettyunits_1.0.2       
-## [41] hms_0.4.2                stringr_1.3.1           
-## [43] munsell_0.5.0            locfit_1.5-9.1          
-## [45] AnnotationDbi_1.44.0     bindrcpp_0.2.2          
-## [47] Biostrings_2.50.2        compiler_3.5.1          
-## [49] rlang_0.2.1              RCurl_1.95-4.11         
-## [51] labeling_0.3             bitops_1.0-6            
-## [53] rmarkdown_1.10           gtable_0.2.0            
-## [55] DBI_1.0.0                R6_2.2.2                
-## [57] GenomicAlignments_1.18.1 knitr_1.20              
-## [59] dplyr_0.7.6              rtracklayer_1.42.1      
-## [61] bit_1.1-14               bindr_0.1.1             
-## [63] rprojroot_1.3-2          KernSmooth_2.23-15      
-## [65] stringi_1.2.4            Rcpp_0.12.18            
-## [67] tidyselect_0.2.4
+##  [1] httr_1.4.0               bit64_0.9-7             
+##  [3] splines_3.5.1            assertthat_0.2.1        
+##  [5] blob_1.1.1               GenomeInfoDbData_1.2.0  
+##  [7] Rsamtools_1.34.1         yaml_2.2.0              
+##  [9] progress_1.2.0           pillar_1.3.1            
+## [11] RSQLite_2.1.1            lattice_0.20-35         
+## [13] glue_1.3.1               digest_0.6.18           
+## [15] XVector_0.22.0           colorspace_1.4-1        
+## [17] htmltools_0.3.6          Matrix_1.2-14           
+## [19] plyr_1.8.4               XML_3.98-1.15           
+## [21] pkgconfig_2.0.2          biomaRt_2.38.0          
+## [23] zlibbioc_1.28.0          purrr_0.3.2             
+## [25] xtable_1.8-3             scales_1.0.0            
+## [27] tibble_2.1.1             annotate_1.60.1         
+## [29] withr_2.1.2              GenomicFeatures_1.34.8  
+## [31] lazyeval_0.2.2           survival_2.42-6         
+## [33] magrittr_1.5             crayon_1.3.4            
+## [35] memoise_1.1.0            evaluate_0.13           
+## [37] tools_3.5.1              prettyunits_1.0.2       
+## [39] hms_0.4.2                stringr_1.4.0           
+## [41] munsell_0.5.0            locfit_1.5-9.1          
+## [43] AnnotationDbi_1.44.0     Biostrings_2.50.2       
+## [45] compiler_3.5.1           rlang_0.3.4             
+## [47] RCurl_1.95-4.12          labeling_0.3            
+## [49] bitops_1.0-6             rmarkdown_1.12          
+## [51] gtable_0.3.0             DBI_1.0.0               
+## [53] R6_2.4.0                 GenomicAlignments_1.18.1
+## [55] knitr_1.22               dplyr_0.8.0.1           
+## [57] rtracklayer_1.42.2       bit_1.1-14              
+## [59] KernSmooth_2.23-15       stringi_1.4.3           
+## [61] Rcpp_1.0.1               tidyselect_0.2.5        
+## [63] xfun_0.6
 ```
