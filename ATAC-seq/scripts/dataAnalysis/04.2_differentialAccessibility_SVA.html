@@ -468,8 +468,8 @@ data.frame(somiteIvsII=sum(mcols(somiteTrios.average.sva[['somiteIIvsI']])$FDR &
                               stage18vs27 = stage27.SI - stage18.SI, stage18vs35 = stage35.SI - stage18.SI, 
                               stage21vs25 = stage25.SI - stage21.SI, stage21vs27 = stage27.SI - stage21.SI, 
                               stage21vs35 = stage35.SI - stage21.SI, 
-                              stage25vs27 = stage27.SI - stage25.SI, 
-                              stage27vs35 = stage27.SI - stage35.SI, levels=design)
+                              stage25vs27 = stage27.SI - stage25.SI, stage25vs35 = stage35.SI - stage25.SI, 
+                              stage27vs35 = stage35.SI - stage27.SI, levels=design)
 somiteI &lt;- glmQLFTest(fit, contrast = my.contrasts)
 
 my.contrasts &lt;- makeContrasts(stage8vs18 = stage18.SII - stage8.SII, stage8vs21 = stage21.SII - stage8.SII,
@@ -479,8 +479,8 @@ my.contrasts &lt;- makeContrasts(stage8vs18 = stage18.SII - stage8.SII, stage8vs
                               stage18vs27 = stage27.SII - stage18.SII, stage18vs35 = stage35.SII - stage18.SII, 
                               stage21vs25 = stage25.SII - stage21.SII, stage21vs27 = stage27.SII - stage21.SII, 
                               stage21vs35 = stage35.SII - stage21.SII, 
-                              stage25vs27 = stage27.SII - stage25.SII, 
-                              stage27vs35 = stage27.SII - stage35.SII, levels=design)
+                              stage25vs27 = stage27.SII - stage25.SII, stage25vs35 = stage35.SII - stage25.SII, 
+                              stage27vs35 = stage35.SII - stage27.SII, levels=design)
 somiteII &lt;- glmQLFTest(fit, contrast = my.contrasts)
 
 my.contrasts &lt;- makeContrasts(stage8vs18 = stage18.SIII - stage8.SIII, stage8vs21 = stage21.SIII - stage8.SIII,
@@ -490,8 +490,8 @@ my.contrasts &lt;- makeContrasts(stage8vs18 = stage18.SIII - stage8.SIII, stage8
                               stage18vs27 = stage27.SIII - stage18.SIII, stage18vs35 = stage35.SIII - stage18.SIII, 
                               stage21vs25 = stage25.SIII - stage21.SIII, stage21vs27 = stage27.SIII - stage21.SIII, 
                               stage21vs35 = stage35.SIII - stage21.SIII, 
-                              stage25vs27 = stage27.SIII - stage25.SIII, 
-                              stage27vs35 = stage27.SIII - stage35.SIII, levels=design)
+                              stage25vs27 = stage27.SIII - stage25.SIII, stage25vs35 = stage35.SIII - stage25.SIII, 
+                              stage27vs35 = stage35.SIII - stage27.SIII, levels=design)
 somiteIII &lt;- glmQLFTest(fit, contrast = my.contrasts)</code></pre>
 <p>This gives us a few thousand significant genes, with the fewest recovered for somiteIII. This is likely a reflection of the lack of power due to low replicate number for this somite particularly.</p>
 <pre class="r"><code>stage.perSomite.sva &lt;- list()
@@ -590,7 +590,7 @@ summary(stage.average.sva$FDR&lt;0.05)</code></pre>
 ## [21] XML_3.98-1.15            pkgconfig_2.0.2         
 ## [23] biomaRt_2.38.0           zlibbioc_1.28.0         
 ## [25] GO.db_3.7.0              AnnotationFilter_1.6.0  
-## [27] GenomicFeatures_1.34.7   lazyeval_0.2.2          
+## [27] GenomicFeatures_1.34.8   lazyeval_0.2.2          
 ## [29] survival_2.42-6          magrittr_1.5            
 ## [31] crayon_1.3.4             memoise_1.1.0           
 ## [33] evaluate_0.13            MASS_7.3-50             
