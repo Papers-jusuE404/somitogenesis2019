@@ -390,27 +390,24 @@ saveRDS(y, file=paste0(dir, &quot;ATAC-seq/results/04.3_edgeRobject_pca.Rds&quot
                               stage35.IIIvsII=stage35.SIII-stage35.SII, levels=design)
 
 ## test
-stage8 &lt;- glmQLFTest(fit, contrast = my.contrasts[,1:3])
-stage18 &lt;- glmQLFTest(fit, contrast = my.contrasts[,4:6])
-stage21 &lt;- glmQLFTest(fit, contrast = my.contrasts[,7:9])
-stage25 &lt;- glmQLFTest(fit, contrast = my.contrasts[,10:12])
-stage35 &lt;- glmQLFTest(fit, contrast = my.contrasts[,13:15])</code></pre>
+trios.perStage &lt;- list()
+trios.perStage[[&quot;stage8&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts[,1:3])
+trios.perStage[[&quot;stage18&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts[,4:6])
+trios.perStage[[&quot;stage21&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts[,7:9])
+trios.perStage[[&quot;stage25&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts[,10:12])
+trios.perStage[[&quot;stage35&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts[,13:15])</code></pre>
 <p>The tests are performed on every window that passed the minimum abundance filter and is within the peak set. However, we are interested in regions of open chromatin as a whole -i.e. <em>peaks</em>-, more than the individual windows <em>per se</em>. Thus, we merge all adjacent windows that are no more than 150bp apart into regions. We also set an upper limit of 1kb to avoid chaining reactions of broadly open areas where a single region could be very long. In these cases, the locus simply gets split into adjacent regions of 1.5kb. For each defined region, we compute a combined p-value against the null hypothesis that none of the windows are differentially accessible.</p>
 <p>There is great variability in the number of regions that reach significance for the different stages. This likely reflects the number of replicates and the quality of the samples. Not surprisingly, stage21 is underpowerd; stage35 should do better but the samples from SIII are not the best quality.</p>
 <p>Samples from stage25 were of particularly good quality and, together with lots of replicates, return the most significant regions. It is likely that many of these are also differential in the other stages, but do not reach significance.</p>
 <pre class="r"><code>merged &lt;- mergeWindows(rowRanges(filtered.data), tol=150, max.width = 1500)
 
 somiteTrios.perStage.pca &lt;- list()
-somiteTrios.perStage.pca[['stage8']] &lt;- merged$region
-mcols(somiteTrios.perStage.pca[['stage8']]) &lt;- combineTests(merged$id, stage8$table)
-somiteTrios.perStage.pca[['stage18']] &lt;- merged$region
-mcols(somiteTrios.perStage.pca[['stage18']]) &lt;- combineTests(merged$id, stage18$table)
-somiteTrios.perStage.pca[['stage21']] &lt;- merged$region
-mcols(somiteTrios.perStage.pca[['stage21']]) &lt;- combineTests(merged$id, stage21$table)
-somiteTrios.perStage.pca[['stage25']] &lt;- merged$region
-mcols(somiteTrios.perStage.pca[['stage25']]) &lt;- combineTests(merged$id, stage25$table)
-somiteTrios.perStage.pca[['stage35']] &lt;- merged$region
-mcols(somiteTrios.perStage.pca[['stage35']]) &lt;- combineTests(merged$id, stage35$table)
+for(contrast in paste0(&quot;stage&quot;,c(8,18,21,25,35))){
+  somiteTrios.perStage.pca[[contrast]] &lt;- merged$region
+  mcols(somiteTrios.perStage.pca[[contrast]]) &lt;- combineTests(merged$id, trios.perStage[[contrast]]$table)
+  best &lt;- getBestTest(merged$id, trios.perStage[[contrast]]$table)
+  mcols(somiteTrios.perStage.pca[[contrast]]) &lt;- cbind(mcols(somiteTrios.perStage.pca[[contrast]]), best[,-c((ncol(best)-2):ncol(best))])
+}
 saveRDS(somiteTrios.perStage.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_somiteTrios_perStage_pca.Rds&quot;))
 
 df &lt;- t(data.frame(stage8=sum(mcols(somiteTrios.perStage.pca[['stage8']])$FDR &lt;= 0.05),
@@ -427,9 +424,9 @@ df</code></pre>
 ## stage25 1094
 ## stage35   46</code></pre>
 <p>Interestingly, the majority (80-92%) of the regions significant in stages 8, 18 or 35 are not significant in stage25, raising the possibility that there are stage specific changes.</p>
-<pre class="r"><code>s25 &lt;- somiteTrios.perStage.pca[[&quot;stage25&quot;]][somiteTrios.perStage.pca[[&quot;stage25&quot;]]$FDR&lt;0.05]
-s8 &lt;- somiteTrios.perStage.pca[[&quot;stage8&quot;]][somiteTrios.perStage.pca[[&quot;stage8&quot;]]$FDR&lt;0.05]
+<pre class="r"><code>s8 &lt;- somiteTrios.perStage.pca[[&quot;stage8&quot;]][somiteTrios.perStage.pca[[&quot;stage8&quot;]]$FDR&lt;0.05]
 s18 &lt;- somiteTrios.perStage.pca[[&quot;stage18&quot;]][somiteTrios.perStage.pca[[&quot;stage18&quot;]]$FDR&lt;0.05]
+s25 &lt;- somiteTrios.perStage.pca[[&quot;stage25&quot;]][somiteTrios.perStage.pca[[&quot;stage25&quot;]]$FDR&lt;0.05]
 s35 &lt;- somiteTrios.perStage.pca[[&quot;stage35&quot;]][somiteTrios.perStage.pca[[&quot;stage35&quot;]]$FDR&lt;0.05]
 
 # length(unique(queryHits(findOverlaps(s8, s25))))/length(s8)
@@ -442,30 +439,26 @@ s35 &lt;- somiteTrios.perStage.pca[[&quot;stage35&quot;]][somiteTrios.perStage.p
   somiteIIIvsII = (stage8.SIII + stage18.SIII + stage21.SIII + stage25.SIII + stage27.SIII + stage35.SIII)/6 - (stage8.SII + stage18.SII + stage21.SII + stage25.SII + stage27.SII + stage35.SII)/6,
   levels=design)
 
-somiteIIvsI.all &lt;- glmQLFTest(fit, contrast = my.contrasts[,&quot;somiteIIvsI&quot;])
-somiteIIIvsI.all &lt;- glmQLFTest(fit, contrast = my.contrasts[,&quot;somiteIIIvsI&quot;])
-somiteIIIvsII.all &lt;- glmQLFTest(fit, contrast = my.contrasts[,&quot;somiteIIIvsII&quot;])
+trios.average &lt;- list()
+trios.average[[&quot;somiteIIvsI&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts[,&quot;somiteIIvsI&quot;])
+trios.average[[&quot;somiteIIIvsI&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts[,&quot;somiteIIIvsI&quot;])
+trios.average[[&quot;somiteIIIvsII&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts[,&quot;somiteIIIvsII&quot;])
 
 ## data.frames
 somiteTrios.average.pca &lt;- list()
-
-somiteTrios.average.pca[['somiteIIvsI']] &lt;- merged$region
-mcols(somiteTrios.average.pca[['somiteIIvsI']]) &lt;- combineTests(merged$id, somiteIIvsI.all$table)
-somiteTrios.average.pca[['somiteIIvsI']] &lt;- somiteTrios.average.pca[['somiteIIvsI']][order(somiteTrios.average.pca[['somiteIIvsI']]$FDR)]
-somiteTrios.average.pca[['somiteIIIvsI']] &lt;- merged$region
-mcols(somiteTrios.average.pca[['somiteIIIvsI']]) &lt;- combineTests(merged$id, somiteIIIvsI.all$table)
-somiteTrios.average.pca[['somiteIIIvsI']] &lt;- somiteTrios.average.pca[['somiteIIIvsI']][order(somiteTrios.average.pca[['somiteIIIvsI']]$FDR)]
-somiteTrios.average.pca[['somiteIIIvsII']] &lt;- merged$region
-mcols(somiteTrios.average.pca[['somiteIIIvsII']]) &lt;- combineTests(merged$id, somiteIIIvsII.all$table)
-somiteTrios.average.pca[['somiteIIIvsII']] &lt;- somiteTrios.average.pca[['somiteIIIvsII']][order(somiteTrios.average.pca[['somiteIIIvsII']]$FDR)]
-
+for(contrast in paste0(&quot;somite&quot;,c(&quot;IIvsI&quot;,&quot;IIIvsI&quot;,&quot;IIIvsII&quot;))){
+  somiteTrios.average.pca[[contrast]] &lt;- merged$region
+  mcols(somiteTrios.average.pca[[contrast]]) &lt;- combineTests(merged$id, trios.average[[contrast]]$table)
+  best &lt;- getBestTest(merged$id, trios.average[[contrast]]$table)
+  mcols(somiteTrios.average.pca[[contrast]]) &lt;- cbind(mcols(somiteTrios.average.pca[[contrast]]), best[,-c((ncol(best)-2):ncol(best))])
+}
 saveRDS(somiteTrios.average.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_somiteTrios_average_pca.Rds&quot;))
 
 data.frame(somiteIvsII=sum(mcols(somiteTrios.average.pca[['somiteIIvsI']])$FDR &lt;= 0.05),
-           somiteIvsIII=sum(mcols(somiteTrios.average.pca[['somiteIIIvsI']])$FDR &lt;= 0.05), 
-           somiteIIvsIII=sum(mcols(somiteTrios.average.pca[['somiteIIIvsII']])$FDR &lt;= 0.05))</code></pre>
-<pre><code>##   somiteIvsII somiteIvsIII somiteIIvsIII
-## 1          84         1544             3</code></pre>
+           somiteIIvsIII=sum(mcols(somiteTrios.average.pca[['somiteIIIvsII']])$FDR &lt;= 0.05),
+           somiteIvsIII=sum(mcols(somiteTrios.average.pca[['somiteIIIvsI']])$FDR &lt;= 0.05))</code></pre>
+<pre><code>##   somiteIvsII somiteIIvsIII somiteIvsIII
+## 1          84             3         1544</code></pre>
 <p>We only detect a large number of regions in the comparison between somites I and III, which are the most different. Again, these regions are likely to be monotonically increasing/decreasing as somites differentiate, and if changes are subtle they only become significant when comparing the extremes.</p>
 <pre class="r"><code>s1 &lt;- somiteTrios.average.pca[[&quot;somiteIIvsI&quot;]][somiteTrios.average.pca[[&quot;somiteIIvsI&quot;]]$FDR&lt;0.05,]
 s2 &lt;- somiteTrios.average.pca[[&quot;somiteIIIvsI&quot;]][somiteTrios.average.pca[[&quot;somiteIIIvsI&quot;]]$FDR&lt;0.05,]
@@ -500,10 +493,11 @@ somiteTrios.perStage.pca.sig &lt;- unique(somiteTrios.perStage.pca.sig)</code></
                               stage18vs27 = stage27.SI - stage18.SI, stage18vs35 = stage35.SI - stage18.SI, 
                               stage21vs25 = stage25.SI - stage21.SI, stage21vs27 = stage27.SI - stage21.SI, 
                               stage21vs35 = stage35.SI - stage21.SI, 
-                              stage25vs27 = stage27.SI - stage25.SI, 
-                              stage27vs35 = stage27.SI - stage35.SI, levels=design)
+                              stage25vs27 = stage27.SI - stage25.SI, stage25vs35 = stage35.SI - stage25.SI, 
+                              stage27vs35 = stage35.SI - stage27.SI, levels=design)
 
-somiteI &lt;- glmQLFTest(fit, contrast = my.contrasts)
+development.perSomite &lt;- list()
+development.perSomite[[&quot;somiteI&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts)
 
 my.contrasts &lt;- makeContrasts(stage8vs18 = stage18.SII - stage8.SII, stage8vs21 = stage21.SII - stage8.SII,
                               stage8vs25 = stage25.SII - stage8.SII, stage8vs27 = stage27.SII - stage8.SII, 
@@ -512,9 +506,9 @@ my.contrasts &lt;- makeContrasts(stage8vs18 = stage18.SII - stage8.SII, stage8vs
                               stage18vs27 = stage27.SII - stage18.SII, stage18vs35 = stage35.SII - stage18.SII, 
                               stage21vs25 = stage25.SII - stage21.SII, stage21vs27 = stage27.SII - stage21.SII, 
                               stage21vs35 = stage35.SII - stage21.SII, 
-                              stage25vs27 = stage27.SII - stage25.SII, 
-                              stage27vs35 = stage27.SII - stage35.SII, levels=design)
-somiteII &lt;- glmQLFTest(fit, contrast = my.contrasts)
+                              stage25vs27 = stage27.SII - stage25.SII, stage25vs35 = stage35.SII - stage25.SII, 
+                              stage27vs35 = stage35.SII - stage27.SII, levels=design)
+development.perSomite[[&quot;somiteII&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts)
 
 my.contrasts &lt;- makeContrasts(stage8vs18 = stage18.SIII - stage8.SIII, stage8vs21 = stage21.SIII - stage8.SIII,
                               stage8vs25 = stage25.SIII - stage8.SIII, stage8vs27 = stage27.SIII - stage8.SIII, 
@@ -523,17 +517,17 @@ my.contrasts &lt;- makeContrasts(stage8vs18 = stage18.SIII - stage8.SIII, stage8
                               stage18vs27 = stage27.SIII - stage18.SIII, stage18vs35 = stage35.SIII - stage18.SIII, 
                               stage21vs25 = stage25.SIII - stage21.SIII, stage21vs27 = stage27.SIII - stage21.SIII, 
                               stage21vs35 = stage35.SIII - stage21.SIII, 
-                              stage25vs27 = stage27.SIII - stage25.SIII, 
-                              stage27vs35 = stage27.SIII - stage35.SIII, levels=design)
-somiteIII &lt;- glmQLFTest(fit, contrast = my.contrasts)</code></pre>
+                              stage25vs27 = stage27.SIII - stage25.SIII, stage25vs35 = stage35.SIII - stage25.SIII, 
+                              stage27vs35 = stage35.SIII - stage27.SIII, levels=design)
+development.perSomite[[&quot;somiteIII&quot;]] &lt;- glmQLFTest(fit, contrast = my.contrasts)</code></pre>
 <p>This gives us a few thousand significant regions, with many more recovered for somiteI.</p>
 <pre class="r"><code>stage.perSomite.pca &lt;- list()
-stage.perSomite.pca[['somiteI']] &lt;- merged$region
-mcols(stage.perSomite.pca[['somiteI']]) &lt;- combineTests(merged$id, somiteI$table)
-stage.perSomite.pca[['somiteII']] &lt;- merged$region
-mcols(stage.perSomite.pca[['somiteII']]) &lt;- combineTests(merged$id, somiteII$table)
-stage.perSomite.pca[['somiteIII']] &lt;- merged$region
-mcols(stage.perSomite.pca[['somiteIII']]) &lt;- combineTests(merged$id, somiteIII$table)
+for(contrast in paste0(&quot;somite&quot;,c(&quot;I&quot;,&quot;II&quot;,&quot;III&quot;))){
+  stage.perSomite.pca[[contrast]] &lt;- merged$region
+  mcols(stage.perSomite.pca[[contrast]]) &lt;- combineTests(merged$id, development.perSomite[[contrast]]$table)
+  best &lt;- getBestTest(merged$id, development.perSomite[[contrast]]$table)
+  mcols(stage.perSomite.pca[[contrast]]) &lt;- cbind(mcols(stage.perSomite.pca[[contrast]]), best[,-c((ncol(best)-2):ncol(best))])
+}
 saveRDS(stage.perSomite.pca, paste0(dir, &quot;ATAC-seq/results/04.3_diffAccessibility_stages_perSomite_pca.Rds&quot;))
 
 df &lt;- t(data.frame(somiteI=sum(mcols(stage.perSomite.pca[['somiteI']])$FDR &lt;= 0.05),
@@ -567,11 +561,13 @@ df</code></pre>
                               stage25vs35 = (stage35.SIII+stage35.SII+stage35.SI)/3 - (stage25.SIII+stage25.SII+stage25.SI)/3,
                               stage27vs35 = (stage35.SIII+stage35.SII+stage35.SI)/3 - (stage27.SIII+stage27.SII+stage27.SI)/3, levels=design)
 
-test &lt;- glmQLFTest(fit, contrast = my.contrasts)</code></pre>
+development.average &lt;- glmQLFTest(fit, contrast = my.contrasts)</code></pre>
 <p>And we test against the null that none of the stages are different. Therefore, anything with an FDR of 5% or lower indicates a region of open chromatin that is differentially accessible between at least a pair of stages.</p>
 <p>Nearly 30 thousand regions are differentially accessible across development.</p>
 <pre class="r"><code>stage.average.pca &lt;- merged$region
-mcols(stage.average.pca) &lt;- combineTests(merged$id, test$table)
+mcols(stage.average.pca) &lt;- combineTests(merged$id, development.average$table)
+best &lt;- getBestTest(merged$id, development.average$table)
+mcols(stage.average.pca) &lt;- cbind(mcols(stage.average.pca), best[,-c((ncol(best)-2):ncol(best))])
 
 summary(stage.average.pca$FDR&lt;0.05)</code></pre>
 <pre><code>##    Mode   FALSE    TRUE 
@@ -634,7 +630,7 @@ round(length(unique(queryHits(findOverlaps(stage.perSomite.pca.sig, stage.averag
 ## [21] XML_3.98-1.15            pkgconfig_2.0.2         
 ## [23] biomaRt_2.38.0           zlibbioc_1.28.0         
 ## [25] GO.db_3.7.0              AnnotationFilter_1.6.0  
-## [27] GenomicFeatures_1.34.7   lazyeval_0.2.2          
+## [27] GenomicFeatures_1.34.8   lazyeval_0.2.2          
 ## [29] survival_2.42-6          magrittr_1.5            
 ## [31] crayon_1.3.4             memoise_1.1.0           
 ## [33] evaluate_0.13            MASS_7.3-50             
