@@ -97,7 +97,10 @@ The first thing to check to assess data quality is the insert size distribution 
 For this we will use `csaw`. We further exclude any alignments that fall within the ENCODE's blacklist. 
 
 ```{r params}
-blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.rds"))
+# blacklist <- read.table(paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.bed"), sep="\t")
+# blacklist <- GRanges(blacklist$V1, IRanges(blacklist$V2, blacklist$V3), type=blacklist$V4)
+# saveRDS(blacklist, paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.Rds"))
+blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.Rds"))
 standard.chr <- paste0("chr", c(1:19, "X")) # restrict analysis to autosomes and the X chr.
 param <- readParam(minq=30, discard=blacklist, restrict=standard.chr, pe="both", dedup=FALSE)
 ```
@@ -134,15 +137,14 @@ We filter out anything with an insert size larger than this.
 Next we plot the distribution of insert sizes for each sample.
 
 ```{r insertSize, fig.width=6, fig.height=2}
-## saples should come in trios but for some embryos some somites failed library prep and are missing.
+## samples should come in trios but for some embryos some somites failed library prep and are missing.
 # Introduce 'blank' plots to keep one embryo per row
 samples <- c(bam.files[1:14], "blank", bam.files[15:22], "blank", bam.files[23:24], "blank", bam.files[25:49], "blank", "blank", bam.files[50:63], "blank", bam.files[64:75])
 par(mfrow=c(1,3), mar=c(2,2,2,2))
 for(file in samples){
   if(file == "blank"){ plot(1,1,col="white", axes=FALSE, xlab="",ylab="") }
   else{
-    d <- diagnostics[[file]]$sizes[diagnostics[[file]]$sizes < 1000]
-    plot(density(d), xlab="", ylab="", main=sampleNames[file], lwd=2) #, bty="l")
+    plot(density(diagnostics[[file]]$sizes), xlab="", ylab="", main=sampleNames[file], lwd=2) #, bty="l")
   }
 }
 ```
