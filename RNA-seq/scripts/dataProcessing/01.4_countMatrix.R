@@ -28,4 +28,4 @@ data <- data[-c(1:4),]
 
 ## save results
 write.table(data, paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"), quote = FALSE, sep="\t")
-write.table(t(mapping.stats), paste0(dir, "RNA-seq/data/mappingStatistics.tsv"), quote = FALSE, sep="\t")
+write.table(t(mapping.stats), paste0(dir, "RNA-seq/data/countingStatistics.tsv"), quote = FALSE, sep="\t")
