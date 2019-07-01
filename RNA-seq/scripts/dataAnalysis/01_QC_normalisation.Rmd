@@ -81,56 +81,58 @@ data <- read.table(paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"), stringsAsFact
 meta <- meta[match(colnames(data)[-1], meta$sample),]
 stopifnot(identical(colnames(data)[-1], meta$sample))
 
-## mapping statistics
-mapping.stats <- read.table(paste0(dir, "RNA-seq/data/mappingStatistics.tsv"), stringsAsFactors = FALSE)
-
+## mapping statistics (from STAR logs)
+mapping.stats <- read.table(paste0(dir, "RNA-seq/data/mappingStatistics.tsv"), stringsAsFactors = FALSE, header = TRUE)
+row.names(mapping.stats) <- meta[match(mapping.stats$sample, meta$library),]$sample
 stopifnot(identical(colnames(data)[-1], row.names(mapping.stats)))
-mapping.stats$uniquelyMapped <- colSums(data[,-1])
-mapping.stats$libSize <- rowSums(mapping.stats)
-# summary(mapping.stats$libSize)
 
-ggplot(mapping.stats, aes(1, libSize/1e6)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5) + ylab("library size (million fragments)") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+## counting statistics (from STAR gene counts)
+counting.stats <- read.table(paste0(dir, "RNA-seq/data/countingStatistics.tsv"), stringsAsFactors = FALSE)
+stopifnot(identical(colnames(data)[-1], row.names(counting.stats)))
+counting.stats$uniquelyMapped <- colSums(data[,-1])
+
+ggplot(mapping.stats, aes(1, total/1e6)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5) + ylab("library size (million fragments)") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 ```
 
-And around 12.8 million of these fragments are uniquely mapped and within exons (interquartile range = 10.5 - 16.4 million)
+Nearly 15 million of these fragments are uniquely mapped, 12.8 million of which are within annotated exons (interquartile range = 10.5 - 16.4 million).
 
 ```{r inExons, message=FALSE, fig.width=4, fig.height=4}
-# summary(mapping.stats$uniquelyMapped)
-ggplot(mapping.stats, aes(1, uniquelyMapped/1e6)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5) + ylab("total fragments uniquely mapped to exons (millions)") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+ggplot(counting.stats, aes(1, uniquelyMapped/1e6)) + geom_violin() + geom_dotplot(binaxis='y', stackdir='center', dotsize=0.5) + ylab("total fragments uniquely mapped to exons (millions)") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 ```
 
-One sample, `r row.names(mapping.stats[which.min(mapping.stats$libSize),])`, has a very small library with only `r mapping.stats[which.min(mapping.stats$libSize),'libSize']` total fragments and will be removed from downstream analyses. The next smallest library has 5.3 million fragments which might or might not be enough for a representative transcriptome.
+One sample, `r row.names(mapping.stats[which.min(mapping.stats$total),])`, has a very small library with only `r mapping.stats[which.min(mapping.stats$total),'total']` total fragments and will be removed from downstream analyses. The next smallest library has 5.3 million fragments which might or might not be enough for a representative transcriptome.
 
 In general, most samples show good mapping statistics with low proportion of unmapped and multimapped fragments, and of fragments mapped to non-exonic regions. There are a few outliers that show larger numbers, but since these have large libraries (over 20 million), the proportion of uniquely mapped fragments is still large.
 
 ```{r qc, message=FALSE, fig.width=7, fig.height=6}
+mapping.stats$unmapped <- mapping.stats$total-(mapping.stats$unique+mapping.stats$multimapped)
 plots <- list()
-plots[[1]] <- ggplot(mapping.stats, aes(1, N_unmapped/libSize*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_unmapped/libSize*100, col=mapping.stats$libSize/1e6), width = 0.05) + ylab("% unmapped") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+plots[[1]] <- ggplot(mapping.stats, aes(1, unmapped/total*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,unmapped/total*100, col=mapping.stats$total/1e6), width = 0.05) + ylab("% unmapped") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 
-plots[[2]] <- ggplot(mapping.stats, aes(1, N_multimapping/libSize*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_multimapping/libSize*100, col=mapping.stats$libSize/1e6), width = 0.05) + ylab("% multimapped") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+plots[[2]] <- ggplot(mapping.stats, aes(1, multimapped/total*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,multimapped/total*100, col=mapping.stats$total/1e6), width = 0.05) + ylab("% multimapped") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 
-plots[[3]] <- ggplot(mapping.stats, aes(1, N_noFeature/libSize*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_noFeature/libSize*100, col=mapping.stats$libSize/1e6), width = 0.05) + ylab("% outside exons") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+plots[[3]] <- ggplot(counting.stats, aes(1, N_noFeature/mapping.stats$total*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_noFeature/mapping.stats$total*100, col=mapping.stats$total/1e6), width = 0.05) + ylab("% outside exons") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 
-plots[[4]] <- ggplot(mapping.stats, aes(1, N_ambiguous/libSize*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_ambiguous/libSize*100, col=mapping.stats$libSize/1e6), width = 0.05) + ylab("% ambiguous") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+plots[[4]] <- ggplot(counting.stats, aes(1, N_ambiguous/mapping.stats$total*100)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,N_ambiguous/mapping.stats$total*100, col=mapping.stats$total/1e6), width = 0.05) + ylab("% ambiguous") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 
 multiplot(plotlist = plots, cols=2)
 ```
 
-The two samples with the smallest libraries have good stats, with only ~7% of fragments unmapped, multimapped, outside exons and ambiguous. That leaves around 70% of fragments uniquely mapped and thus suggests the libraries are of good quality, but sequenced to insufficient depth.
+The two samples with the smallest libraries have good stats, with only ~7% of fragments unmapped, multimapped, outside exons and ambiguous. That leaves around 70% of fragments uniquely mapped and thus suggests the libraries are of good quality, but sequenced to lower depth.
 
 Samples generally have around 22 thousand genes expressed, with a tight IQR between 21.1 and 23 thousand. The sample with the very small library is a clear outlier and needs to be removed. The second smallest also deviates a bit from the rest of the dataset, but has 18,565 detected genes, compared to 19,549 of the next sample.
 
 ```{r numGenes, fig.width=4, fig.height=4}
-mapping.stats$nGenes <- apply(data[,-1], 2, function(x) sum(x>0))
-# summary(mapping.stats$nGenes)
+counting.stats$nGenes <- apply(data[,-1], 2, function(x) sum(x>0))
+# summary(counting.stats$nGenes)
 
-ggplot(mapping.stats, aes(1, nGenes/1e3)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,nGenes/1e3, col=mapping.stats$libSize/1e6), width = 0.02) + ylab("total genes detected (thousands)") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+ggplot(counting.stats, aes(1, nGenes/1e3)) + geom_violin(trim=FALSE) + geom_jitter(aes(1,nGenes/1e3, col=mapping.stats$total/1e6), width = 0.02) + ylab("total genes detected (thousands)") + scale_colour_gradientn(colours = (brewer.pal(n = 11, name = "PiYG"))) + labs(colour="libsize") + xlab("") + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 ```
 
 Given that the second smallest library shows a similar number of detected genes and good mapping statistics (reflecting good sample quality), it is likely that its data is useful, specially for genes expressed at moderate to high levels. Therefore, we will only remove the sample that almost failed sequencing and proceed with all others.
 
 ```{r badQual}
-bad.qual <- row.names(mapping.stats[which.min(mapping.stats$libSize),])
+bad.qual <- row.names(mapping.stats[which.min(mapping.stats$total),])
 data <- data[,-which(colnames(data) == bad.qual)]
 meta$QC <- ifelse(meta$sample == bad.qual, 0, 1)
 ```
