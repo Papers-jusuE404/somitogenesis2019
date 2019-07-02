@@ -132,8 +132,6 @@ Over 99% of all fragments have insert sizes under 1kb:
 summary(stats[,'under1kb'])
 ```
 
-We filter out anything with an insert size larger than this.
-
 Next we plot the distribution of insert sizes for each sample.
 
 ```{r insertSize, fig.width=6, fig.height=2}

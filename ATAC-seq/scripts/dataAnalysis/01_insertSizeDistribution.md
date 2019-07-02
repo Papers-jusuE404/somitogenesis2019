@@ -69,7 +69,10 @@ For this we will use `csaw`. We further exclude any alignments that fall within 
 
 
 ```r
-blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.rds"))
+# blacklist <- read.table(paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.bed"), sep="\t")
+# blacklist <- GRanges(blacklist$V1, IRanges(blacklist$V2, blacklist$V3), type=blacklist$V4)
+# saveRDS(blacklist, paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.Rds"))
+blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.Rds"))
 standard.chr <- paste0("chr", c(1:19, "X")) # restrict analysis to autosomes and the X chr.
 param <- readParam(minq=30, discard=blacklist, restrict=standard.chr, pe="both", dedup=FALSE)
 ```
@@ -114,15 +117,14 @@ Next we plot the distribution of insert sizes for each sample.
 
 
 ```r
-## saples should come in trios but for some embryos some somites failed library prep and are missing.
+## samples should come in trios but for some embryos some somites failed library prep and are missing.
 # Introduce 'blank' plots to keep one embryo per row
 samples <- c(bam.files[1:14], "blank", bam.files[15:22], "blank", bam.files[23:24], "blank", bam.files[25:49], "blank", "blank", bam.files[50:63], "blank", bam.files[64:75])
 par(mfrow=c(1,3), mar=c(2,2,2,2))
 for(file in samples){
   if(file == "blank"){ plot(1,1,col="white", axes=FALSE, xlab="",ylab="") }
   else{
-    d <- diagnostics[[file]]$sizes[diagnostics[[file]]$sizes < 1000]
-    plot(density(d), xlab="", ylab="", main=sampleNames[file], lwd=2) #, bty="l")
+    plot(density(diagnostics[[file]]$sizes), xlab="", ylab="", main=sampleNames[file], lwd=2) #, bty="l")
   }
 }
 ```
@@ -304,45 +306,43 @@ sessionInfo()
 ##  [8] datasets  methods   base     
 ## 
 ## other attached packages:
-##  [1] ggplot2_3.0.0               dynamicTreeCut_1.63-1      
-##  [3] csaw_1.12.0                 BiocParallel_1.12.0        
-##  [5] SummarizedExperiment_1.12.0 DelayedArray_0.4.1         
-##  [7] matrixStats_0.54.0          Biobase_2.38.0             
+##  [1] ggplot2_3.1.1               dynamicTreeCut_1.63-1      
+##  [3] csaw_1.16.1                 SummarizedExperiment_1.12.0
+##  [5] DelayedArray_0.8.0          BiocParallel_1.16.6        
+##  [7] matrixStats_0.54.0          Biobase_2.42.0             
 ##  [9] Rsamtools_1.34.1            Biostrings_2.50.2          
 ## [11] XVector_0.22.0              GenomicRanges_1.34.0       
 ## [13] GenomeInfoDb_1.18.2         IRanges_2.16.0             
 ## [15] S4Vectors_0.20.1            BiocGenerics_0.28.0        
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] Rcpp_0.12.18             locfit_1.5-9.1          
+##  [1] Rcpp_1.0.1               locfit_1.5-9.1          
 ##  [3] lattice_0.20-35          prettyunits_1.0.2       
-##  [5] assertthat_0.2.0         rprojroot_1.3-2         
-##  [7] digest_0.6.15            R6_2.2.2                
-##  [9] plyr_1.8.4               backports_1.1.2         
-## [11] RSQLite_2.1.0            evaluate_0.11           
-## [13] pillar_1.3.0             httr_1.3.1              
-## [15] zlibbioc_1.24.0          rlang_0.2.1             
-## [17] GenomicFeatures_1.30.3   progress_1.2.0          
-## [19] lazyeval_0.2.1           blob_1.1.1              
-## [21] Matrix_1.2-14            rmarkdown_1.10          
-## [23] labeling_0.3             RMySQL_0.10.15          
-## [25] Rhtslib_1.10.0           stringr_1.3.1           
-## [27] RCurl_1.95-4.11          bit_1.1-14              
-## [29] biomaRt_2.34.2           munsell_0.5.0           
-## [31] compiler_3.5.1           rtracklayer_1.42.1      
-## [33] pkgconfig_2.0.2          htmltools_0.3.6         
-## [35] tidyselect_0.2.4         tibble_1.4.2            
-## [37] GenomeInfoDbData_1.0.0   edgeR_3.20.9            
-## [39] XML_3.98-1.15            withr_2.1.2             
-## [41] dplyr_0.7.6              crayon_1.3.4            
-## [43] GenomicAlignments_1.18.1 bitops_1.0-6            
-## [45] gtable_0.2.0             DBI_1.0.0               
-## [47] magrittr_1.5             scales_1.0.0            
-## [49] stringi_1.2.4            bindrcpp_0.2.2          
-## [51] limma_3.34.9             tools_3.5.1             
-## [53] bit64_0.9-7              glue_1.3.0              
-## [55] purrr_0.2.5              hms_0.4.2               
-## [57] yaml_2.2.0               AnnotationDbi_1.44.0    
-## [59] colorspace_1.3-2         memoise_1.1.0           
-## [61] bindr_0.1.1              knitr_1.20
+##  [5] assertthat_0.2.1         digest_0.6.18           
+##  [7] R6_2.4.0                 plyr_1.8.4              
+##  [9] RSQLite_2.1.1            evaluate_0.13           
+## [11] httr_1.4.0               pillar_1.3.1            
+## [13] zlibbioc_1.28.0          rlang_0.3.4             
+## [15] GenomicFeatures_1.34.8   progress_1.2.0          
+## [17] lazyeval_0.2.2           blob_1.1.1              
+## [19] Matrix_1.2-14            rmarkdown_1.12          
+## [21] labeling_0.3             stringr_1.4.0           
+## [23] RCurl_1.95-4.12          bit_1.1-14              
+## [25] biomaRt_2.38.0           munsell_0.5.0           
+## [27] compiler_3.5.1           rtracklayer_1.42.2      
+## [29] xfun_0.6                 pkgconfig_2.0.2         
+## [31] htmltools_0.3.6          tidyselect_0.2.5        
+## [33] tibble_2.1.1             GenomeInfoDbData_1.2.0  
+## [35] edgeR_3.24.3             XML_3.98-1.15           
+## [37] withr_2.1.2              crayon_1.3.4            
+## [39] dplyr_0.8.0.1            GenomicAlignments_1.18.1
+## [41] bitops_1.0-6             gtable_0.3.0            
+## [43] DBI_1.0.0                magrittr_1.5            
+## [45] scales_1.0.0             stringi_1.4.3           
+## [47] limma_3.38.3             tools_3.5.1             
+## [49] bit64_0.9-7              glue_1.3.1              
+## [51] purrr_0.3.2              hms_0.4.2               
+## [53] yaml_2.2.0               AnnotationDbi_1.44.0    
+## [55] colorspace_1.4-1         memoise_1.1.0           
+## [57] knitr_1.22
 ```
