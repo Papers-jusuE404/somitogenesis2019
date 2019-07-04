@@ -23,7 +23,7 @@ We have ATAC-seq data for 75 samples comprising somite trios at six different de
 meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
 
 ## BAM files
-bam.files <- paste0(dir, "ATACseq/data/BWA/", meta$sample, ".noDUPs.GQ.bam")
+bam.files <- paste0(dir, "ATAC-seq/data/BWA/", meta$sample, ".noDUPs.GQ.bam")
 ```
 
 We now need to decide which samples are of enough good quality for downstream analyses.
@@ -61,7 +61,7 @@ Samples with good nucleosomal patterns tend to have higher number of peaks.
 
 
 ```r
-blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.rds"))
+blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.Rds"))
 peaks <- list()
 
 for(sample in meta$sample){
@@ -96,34 +96,39 @@ tmp
 ```
 
 ```
-##                 0        1        2        3        4
-## Min.       41.000  5266.00   114.00    29.00  2792.00
-## 1st Qu.  1558.250 15613.00 18709.75 20463.25 27343.50
-## Median   5890.500 20978.50 36141.00 34885.50 51915.00
-## Mean     9916.688 20637.00 33227.60 33489.46 40992.43
-## 3rd Qu. 15632.750 27796.75 48914.00 50071.25 56209.00
-## Max.    30981.000 35612.00 68145.00 60019.00 65135.00
+##                 0       1        2        3        4
+## Min.        6.000    81.0    83.00     7.00  2811.00
+## 1st Qu.  1653.000 16242.5 18813.75 21671.25 27692.50
+## Median   6807.000 23763.5 30960.50 35456.00 51105.50
+## Mean     9629.824 23284.0 30839.86 34618.10 41830.12
+## 3rd Qu. 13553.000 30242.0 44903.50 49600.00 54406.00
+## Max.    30594.000 49674.0 67413.00 59371.00 64529.00
 ```
 
 A cutoff of 15 thousand peaks removes the lowest third of the data.
 
 ----
 
-The *fraction of reads in peaks* is a good measurement of the signal-to-noise ratio. This will of course be correlated to the total number of peaks called and therefore to the quality of the nucleosomal pattern.
+The *fraction of reads in peaks* is a good measurement of the signal-to-noise ratio. This will of course be correlated to the total number of peaks called.
 
-We use `bedtools` to count the number of fragments mapped across called peaks.
+We use `csaw` to count the number of fragments mapped across called peaks.
 
 
 ```r
-## write the blacklist as a BED file to use with bedtools
-write.table(as.data.frame(blacklist)[,1:3], file=paste0(dir, "ATAC-seq/data/mm10-blacklist.bed"), quote = FALSE, sep="\t", col.names = FALSE, row.names = FALSE)
+stopifnot(identical(substr(bam.files, 83, nchar(bam.files)-14), names(peaks)))
 
-frip <- rep(0, nrow(meta))
-names(frip) <- meta$sample
-for(sample in meta$sample){
-  frip[sample] <- sum(read.table(paste0(dir, "ATAC-seq/peaks/individualReps/", sample, "_peaks.FRiP.bed"))[,10])/2
+standard.chr <- paste0("chr", c(1:19, "X")) # restrict analysis to autosomes and the X chr.
+param <- readParam(minq=30, discard=blacklist, restrict=standard.chr, pe="both", dedup=FALSE, BPPARAM=MulticoreParam(workers=12))
+
+frip <- list()
+for(i in 1:length(bam.files)){
+  frip[[i]] <- regionCounts(bam.files[i], peaks[[i]], param = param)
 }
+names(frip) <- names(peaks)
+saveRDS(frip, paste0(dir, "ATAC-seq/results/02_FRiP.Rds"))
 
+frip <- unlist(lapply(frip, function(x) sum(assay(x))))
+stopifnot(identical(names(frip), meta$sample))
 meta$readsInPeaks <- frip
 
 boxplot(meta$readsInPeaks/meta$goodQuality*100~meta$insSizeDist, col=colors, ylab="FRiP", xlab="nucleosomal pattern score")
@@ -170,21 +175,19 @@ Another measure of the quality of an ATAC-seq library is the degree of enrichmen
 
 ```r
 ## retrieve TSS coordinates for all genes
-## we used Ensembl annotation version 93 for the RNA-seq analysis. Use the same for consistentcy.
-ensembl <- useMart(host = 'http://jul2018.archive.ensembl.org', 
+## we used Ensembl annotation version 96 for the RNA-seq analysis. Use the same for consistentcy.
+ensembl <- useMart(host = 'http://apr2019.archive.ensembl.org', 
                    biomart = 'ENSEMBL_MART_ENSEMBL', dataset = 'mmusculus_gene_ensembl')
 
 tss <- getBM(attributes=c('ensembl_gene_id', 'external_gene_name', 'chromosome_name', 'transcription_start_site'), mart = ensembl)
 
 ## retain only expressed genes
-expr <- read.table(paste0(dir, "RNA-seq/data/geneCounts_SOMITES.RAW.tsv"))[-c(1:4),]
-expr <- expr[,-grep("PSM", colnames(expr))] ## we remove the PSM samples to use only the somites transcriptomes
-# normalise
-sf <- estimateSizeFactorsForMatrix(expr[,-1])
-expr <- t(t(expr[,-1])/sf)
-means <- rowMeans(expr)
-keep <- means > 100 # use only moderatly to highly expressed genes
-# summary(keep) # 8684  
+expr <- read.table(paste0(dir, "RNA-seq/data/geneCounts.NORM_logCPM.tsv"))
+means <- rowMeans(expr[,-1])
+# plot(density(means))
+
+keep <- means > log2(10) # use only moderately to highly expressed genes
+# summary(keep) # 10186  
 genes <- names(means[keep])
 
 ## keep the earliest TSS for each expressed gene
@@ -211,12 +214,11 @@ Using `betools` we can then count the number of Tn5 insertions at each basepair 
 
 The aggregate profile for all genes gives us a measure of the number of insertions at each basepair, relative to the TSS. We use the first and last 100bp of the 2kb interval as a measurement of the background insertion level, and compute the fold-change of each bp against this. Thus, the flanks should start at 1 and the fold-change should increase if there is an excess of insertions as we approach the TSS.
 
-We indeed see this, with values as high as 10-fold enrichment at the TSS for some samples.
+We indeed see this, with values as high as nearly 10 fold enrichment at the TSS for some samples.
 
 
 ```r
 ## read insertion counts
-sample <- meta$sample[1]
 tss <- list()
 for(sample in meta$sample){
   tss[[sample]] <- matrix(read.table(paste0(dir, "ATAC-seq/TSS/", sample, ".TSScount.bed"), stringsAsFactors = FALSE)[,7], ncol = 2001, byrow = TRUE)
@@ -247,9 +249,6 @@ for(sample in meta[order(meta$nPeaks, decreasing = TRUE),]$sample){
 
 stopifnot(identical(row.names(tss.norm),meta$sample))
 meta$TSSscore <- tss.norm[,1001]
-
-## save the metadata that has new columns
-write.table(meta, paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
 ```
 
 ![](02_qualityControl_files/figure-html/plotTSSenrichment-1.png)<!-- -->
@@ -264,7 +263,7 @@ In the aggregate profiles we only observe the signal from genes in the + strand 
 
 
 ```r
-ann <- read.table(paste0(dir, "RNA-seq/data/Mus_musculus.GRCm38.93.ann"), row.names = 1)
+ann <- read.table(paste0(dir, "RNA-seq/data/Mus_musculus.GRCm38.96.ann"), row.names = 1)
 tmp <- read.table(paste0(dir, "ATAC-seq/data/TSScoords_expressedGenes_flanking1kb.bed"), stringsAsFactors = FALSE)
 strands <- ann[tmp$V5,5]
 
@@ -302,7 +301,7 @@ row.names(qc) <- meta$sample
 # round(table(rowSums(qc))/nrow(qc)*100,2)
 # 0     1     2     3     4 
 # 18.67 12.00  2.67 14.67 52.00 
-upset(qc, mainbar.y.label = "number of samples", sets.x.label = "number of samples\nthat pass", text.scale=1.5)
+upset(qc, mainbar.y.label = "number of samples", sets.x.label = "number of samples\nthat pass", text.scale=1.25)
 ```
 
 ![](02_qualityControl_files/figure-html/qc-1.png)<!-- -->
@@ -361,43 +360,36 @@ sessionInfo()
 ## [8] methods   base     
 ## 
 ## other attached packages:
-##  [1] biomaRt_2.34.2              ggplot2_3.0.0              
-##  [3] UpSetR_1.3.3                zoo_1.8-3                  
-##  [5] DESeq2_1.18.1               GenomicAlignments_1.18.1   
-##  [7] SummarizedExperiment_1.12.0 DelayedArray_0.4.1         
-##  [9] matrixStats_0.54.0          Biobase_2.38.0             
-## [11] Rsamtools_1.34.1            Biostrings_2.50.2          
-## [13] XVector_0.22.0              GenomicRanges_1.34.0       
-## [15] GenomeInfoDb_1.18.2         IRanges_2.16.0             
-## [17] S4Vectors_0.20.1            BiocGenerics_0.28.0        
-## [19] RColorBrewer_1.1-2         
+##  [1] biomaRt_2.38.0              ggplot2_3.1.1              
+##  [3] UpSetR_1.3.3                zoo_1.8-5                  
+##  [5] GenomicAlignments_1.18.1    Rsamtools_1.34.1           
+##  [7] Biostrings_2.50.2           XVector_0.22.0             
+##  [9] RColorBrewer_1.1-2          csaw_1.16.1                
+## [11] SummarizedExperiment_1.12.0 DelayedArray_0.8.0         
+## [13] BiocParallel_1.16.6         matrixStats_0.54.0         
+## [15] Biobase_2.42.0              GenomicRanges_1.34.0       
+## [17] GenomeInfoDb_1.18.2         IRanges_2.16.0             
+## [19] S4Vectors_0.20.1            BiocGenerics_0.28.0        
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] httr_1.3.1             bit64_0.9-7            splines_3.5.1         
-##  [4] Formula_1.2-3          assertthat_0.2.0       latticeExtra_0.6-28   
-##  [7] blob_1.1.1             GenomeInfoDbData_1.0.0 progress_1.2.0        
-## [10] yaml_2.2.0             RSQLite_2.1.0          pillar_1.3.0          
-## [13] backports_1.1.2        lattice_0.20-35        glue_1.3.0            
-## [16] digest_0.6.15          checkmate_1.9.1        colorspace_1.3-2      
-## [19] htmltools_0.3.6        Matrix_1.2-14          plyr_1.8.4            
-## [22] XML_3.98-1.15          pkgconfig_2.0.2        genefilter_1.60.0     
-## [25] zlibbioc_1.24.0        purrr_0.2.5            xtable_1.8-2          
-## [28] scales_1.0.0           BiocParallel_1.12.0    tibble_1.4.2          
-## [31] htmlTable_1.12         annotate_1.56.2        withr_2.1.2           
-## [34] nnet_7.3-12            lazyeval_0.2.1         survival_2.42-6       
-## [37] magrittr_1.5           crayon_1.3.4           memoise_1.1.0         
-## [40] evaluate_0.11          foreign_0.8-71         prettyunits_1.0.2     
-## [43] tools_3.5.1            data.table_1.11.4      hms_0.4.2             
-## [46] stringr_1.3.1          locfit_1.5-9.1         munsell_0.5.0         
-## [49] cluster_2.0.7-1        AnnotationDbi_1.44.0   bindrcpp_0.2.2        
-## [52] compiler_3.5.1         rlang_0.2.1            grid_3.5.1            
-## [55] RCurl_1.95-4.11        rstudioapi_0.7         htmlwidgets_1.2       
-## [58] labeling_0.3           bitops_1.0-6           base64enc_0.1-3       
-## [61] rmarkdown_1.10         gtable_0.2.0           curl_3.2              
-## [64] DBI_1.0.0              R6_2.2.2               gridExtra_2.3         
-## [67] knitr_1.20             dplyr_0.7.6            bit_1.1-14            
-## [70] bindr_0.1.1            Hmisc_4.1-1            rprojroot_1.3-2       
-## [73] stringi_1.2.4          Rcpp_0.12.18           geneplotter_1.56.0    
-## [76] rpart_4.1-13           acepack_1.4.1          tidyselect_0.2.4
+##  [1] Rcpp_1.0.1             locfit_1.5-9.1         lattice_0.20-35       
+##  [4] prettyunits_1.0.2      assertthat_0.2.1       digest_0.6.18         
+##  [7] R6_2.4.0               plyr_1.8.4             RSQLite_2.1.1         
+## [10] evaluate_0.13          httr_1.4.0             pillar_1.3.1          
+## [13] zlibbioc_1.28.0        rlang_0.3.4            GenomicFeatures_1.34.8
+## [16] progress_1.2.0         lazyeval_0.2.2         blob_1.1.1            
+## [19] Matrix_1.2-14          rmarkdown_1.12         labeling_0.3          
+## [22] stringr_1.4.0          RCurl_1.95-4.12        bit_1.1-14            
+## [25] munsell_0.5.0          compiler_3.5.1         rtracklayer_1.42.2    
+## [28] xfun_0.6               pkgconfig_2.0.2        htmltools_0.3.6       
+## [31] tidyselect_0.2.5       gridExtra_2.3          tibble_2.1.1          
+## [34] GenomeInfoDbData_1.2.0 edgeR_3.24.3           XML_3.98-1.15         
+## [37] withr_2.1.2            crayon_1.3.4           dplyr_0.8.0.1         
+## [40] bitops_1.0-6           grid_3.5.1             gtable_0.3.0          
+## [43] DBI_1.0.0              magrittr_1.5           scales_1.0.0          
+## [46] stringi_1.4.3          limma_3.38.3           tools_3.5.1           
+## [49] bit64_0.9-7            glue_1.3.1             purrr_0.3.2           
+## [52] hms_0.4.2              yaml_2.2.0             AnnotationDbi_1.44.0  
+## [55] colorspace_1.4-1       memoise_1.1.0          knitr_1.22
 ```
 
