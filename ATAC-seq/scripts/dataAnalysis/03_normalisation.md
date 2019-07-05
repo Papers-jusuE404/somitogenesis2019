@@ -37,7 +37,7 @@ peakSet <- read.table(paste0(dir, "ATAC-seq/peaks/allGQsamples_peaks.broadPeak")
 peakSet <- GRanges(peakSet$V1, IRanges(peakSet$V2, peakSet$V3), fc=peakSet$V7, fdr=peakSet$V9)
 
 # remove peaks in blacklisted regions
-blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.rds"))
+blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.Rds"))
 remove <- unique(queryHits(findOverlaps(peakSet, blacklist)))
 peakSet <- peakSet[-remove]
 
@@ -45,7 +45,7 @@ peakSet <- peakSet[-remove]
 saveRDS(peakSet, paste0(dir, "ATAC-seq/results/03_peakSet_full.Rds"))
 ```
 
-This resulted in 133725 called peaks, which can be used as a common peak-set for all samples.
+This resulted in 131743 called peaks, which can be used as a common peak-set for all samples.
 
 We count the number of fragments mapped to these regions in each sample, to get a uniform measure of fraction of reads in peaks (FRiP) for all samples. Before, each sample had its own set of peaks, making their FRiPs non-comparable.
 
@@ -82,21 +82,13 @@ saveRDS(background, paste0(dir, "ATAC-seq/results/03_backgroundCounts_10kbBins.R
 
 
 ```r
-sf.comp <- normOffsets(background, se.out=FALSE)
-```
-
-```
-## Warning: type="scaling" is deprecated.
-## Use normFactors() instead.
-```
-
-```r
+sf.comp <- normFactors(background, se.out=FALSE)
 summary(sf.comp)
 ```
 
 ```
 ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-##  0.7364  0.9689  1.0291  1.0025  1.0430  1.0787
+##  0.7332  0.9685  1.0291  1.0026  1.0445  1.0800
 ```
 
 #### Efficiency biases
@@ -118,7 +110,7 @@ summary(keep.overlap)
 
 ```
 ##     Mode    FALSE     TRUE 
-##  logical 30586431  3219047
+##  logical 30173825  3177316
 ```
 
 Since we used all samples to call peaks, we have increased power greatly, allowing calling of very low enrichment regions on a per sample basis. Thus, besides restricting the analysis to windows within peaks, we also need to filter out those that are of too low abundance, since we won't have power to do any differential testing on them.
@@ -138,8 +130,8 @@ table(keep.overlap, keep.minCount)
 ```
 ##             keep.minCount
 ## keep.overlap    FALSE     TRUE
-##        FALSE 29689061   897370
-##        TRUE    809279  2409768
+##        FALSE 29296721   877104
+##        TRUE    793721  2383595
 ```
 
 So we retain only windows within peaks that also pass the minimum count filter.
@@ -149,7 +141,6 @@ So we retain only windows within peaks that also pass the minimum count filter.
 keep <- keep.overlap & keep.minCount
 
 filtered.data <- winCounts[keep,]
-saveRDS(filtered.data, file=paste0(dir, "ATAC-seq/results/03_windowCounts_filteredWindows.Rds"))
 ```
 
 
@@ -157,21 +148,13 @@ Next, we use this subset of windows to compute size factors with the TMM method.
 
 
 ```r
-sf.eff <- normOffsets(filtered.data, se.out = FALSE)
-```
-
-```
-## Warning: type="scaling" is deprecated.
-## Use normFactors() instead.
-```
-
-```r
+sf.eff <- normFactors(filtered.data, se.out = FALSE)
 summary(sf.eff)
 ```
 
 ```
 ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-##  0.6061  0.7807  0.9432  1.0479  1.2874  2.2158
+##  0.6047  0.7723  0.9412  1.0490  1.3005  2.2384
 ```
 
 ```r
@@ -196,13 +179,12 @@ There are much fewer bins with much higher mean abundance that represent true en
 adj.counts <- cpm(asDGEList(background), log=TRUE)
 
 par(mfrow=c(1, 4), mar=c(5, 4, 2, 1.5))
-for (i in seq_len(nrow(meta)-1)) {
+for (i in 2:ncol(adj.counts)) {
   cur.x <- adj.counts[,1]
-  cur.y <- adj.counts[,1+i]
-  smoothScatter(x=(cur.x+cur.y)/2, y=cur.x-cur.y,
-  xlab="A", ylab="M", main=paste("1 vs", i+1))
+  cur.y <- adj.counts[,i]
+  smoothScatter(x=(cur.x+cur.y)/2, y=cur.x-cur.y, xlab="A", ylab="M", main=paste("1 vs", i))
   abline(h=0, col="red", lwd=2)
-  abline(h=c(log2(sf.comp[1]/sf.comp[i+1]), log2(sf.eff[1]/sf.eff[i+1])), lty=c(2,1))
+  abline(h=c(log2(sf.comp[1]/sf.comp[i]), log2(sf.eff[1]/sf.eff[i])), lty=c(2,1))
 }
 ```
 
@@ -219,6 +201,7 @@ filtered.data <- normOffsets(filtered.data, type="loess", se.out=TRUE)
 sf.trended <- assay(filtered.data, "offset")
 
 ## save for future use
+saveRDS(filtered.data, file=paste0(dir, "ATAC-seq/results/03_windowCounts_filteredWindows.Rds"))
 saveRDS(sf.trended, paste0(dir, "ATAC-seq/results/03_trendedNorm_sizeFactors.Rds"))
 ```
 
@@ -233,7 +216,7 @@ o <- order(abval)
 re.adjc <- adjc - sf.trended/log(2)
 
 par(mfrow=c(1, 4), mar=c(5, 4, 2, 1.5))
-for(i in 2:ncol(adjc)){
+for(i in 2:ncol(re.adjc)){
   mval <- re.adjc[,1]-re.adjc[,i]
   fit <- loessFit(x=abval, y=mval)
   smoothScatter(abval, mval, ylab="M", xlab="Average logCPM", main=paste("Normalised 1 vs",i))
@@ -251,15 +234,12 @@ Below is the PCA plot with points (samples) coloured by their stage or date of c
 
 
 ```r
-# mds.norm <- plotMDS(re.adjc, top=5000, plot=FALSE)
 vars <- rowVars(as.matrix(re.adjc))
 tmp <- re.adjc[order(vars, decreasing=TRUE)[1:5000],]
 pca <- prcomp(t(tmp))
 df <- cbind(pca$x, meta)
 
 plots <- list()
-# df <- cbind(x=mds.norm$x, y=mds.norm$y, meta)
-
 plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
 plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$date)) + labs(colour="date")
 multiplot(plotlist = plots, cols=2)
@@ -277,11 +257,11 @@ plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSe
 multiplot(plotlist = plots, cols=2)
 ```
 
-![](03_normalisation_files/figure-html/PVAnorm2-1.png)<!-- -->
+![](03_normalisation_files/figure-html/PCAnorm2-1.png)<!-- -->
 
 ```r
-# cor(df$PC1, df$readsInPeakSet/df$goodQuality*100) # -0.63
-# cor(df$PC1, df$goodQuality) # 0.35
+# cor(df$PC1, df$readsInPeakSet/df$goodQuality*100) # -0.59
+# cor(df$PC1, df$goodQuality) # 0.34
 ```
 
 The correlation with FRiP is particularly strong.
@@ -289,7 +269,7 @@ The correlation with FRiP is particularly strong.
 
 ```r
 plot(df$PC1, df$readsInPeakSet/df$goodQuality*100, xlab="PC1", ylab="FRiP", bty="l", pch=16)
-mtext(side=3, line=-1, text = "Pearson r = -0.63", at=-35)
+mtext(side=3, line=-1, text = paste0("Pearson r = ", round(cor(df$PC1, df$readsInPeakSet/df$goodQuality*100),2)), at=-35)
 ```
 
 ![](03_normalisation_files/figure-html/frip-1.png)<!-- -->
@@ -302,7 +282,7 @@ This suggests that the normalisation hasn't successfully removed efficiency bias
 
 In order to remove the remaining technical variation in the data after the trended normalisation we can use surrogate variable analysis (sva) to infer the systematic effects in the data, that are not due to our conditions of interest.
 
-We use the `sva` function from the `sva` package. The input data is the normalised counts. The algorithm suggests one surrogate variable (sv).
+We use the `sva` function from the `sva` package. The input data is the normalised counts. The algorithm identifies 12 surrogate variables (SVs).
 
 
 ```r
@@ -312,13 +292,12 @@ design <- model.matrix(~0+group, meta)
 colnames(design) <- paste0("stage",levels(meta$group))
 
 ## SVA
-n.sv = num.sv(re.adjc, design, method="leek", seed=174)
 mod0 = model.matrix(~1, data=meta)
-svobj = sva(re.adjc, design, mod0, n.sv = n.sv)
+svobj = sva(re.adjc, design, mod0)
 ```
 
 ```
-## Number of significant surrogate variables is:  1 
+## Number of significant surrogate variables is:  12 
 ## Iteration (out of 5 ):1  2  3  4  5
 ```
 
@@ -326,35 +305,32 @@ svobj = sva(re.adjc, design, mod0, n.sv = n.sv)
 write.table(svobj$sv, paste0(dir, "ATAC-seq/results/03_svs_trendNormData.tab"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
 ```
 
-This sv is strongly correlated with the FRiP, and thus should remove the effects observed above.
+This first SV is strongly correlated with the FRiP, and thus should remove the effects observed above.
 
 
 ```r
 plot(svobj$sv[,1], meta$readsInPeakSet/meta$goodQuality*100, xlab="SV1", ylab="FRiP", pch=16, bty="l")
 ```
 
-![](03_normalisation_files/figure-html/sv_vs_frip-1.png)<!-- -->
+![](03_normalisation_files/figure-html/sv1_vs_frip-1.png)<!-- -->
 
 ```r
-# cor(svobj$sv[,1], meta$readsInPeakSet/meta$goodQuality*100) # -0.65
-# cor(svobj$sv[,1], meta$goodQuality) # 0.28
+# cor(svobj$sv[,1], meta$readsInPeakSet/meta$goodQuality*100) # -0.62
+# cor(svobj$sv[,1], meta$goodQuality) # 0.296
 ```
 
-We can regress out this sv and redo the PCA with the corrected data. In this case, samples separate a bit better by stage (PC3 separates 8 from 18 and 25 as its own group), and there is no correlation with FRiP in the first two components.
+We can regress out these SVs and redo the PCA with the corrected data. In this case, samples very well by stage, and there is no correlation with FRiP in the first two components.
 
 
 ```r
 norm.counts.corr <- removeBatchEffect(re.adjc, design = design, covariates = svobj$sv)
 
-# mds.norm.corr <- plotMDS(norm.counts.corr, top=5000, plot=FALSE)
 vars <- rowVars(norm.counts.corr)
 tmp <- norm.counts.corr[order(vars, decreasing=TRUE)[1:5000],]
 pca <- prcomp(t(tmp))
 df <- cbind(pca$x, meta)
 
 plots <- list()
-# df <- cbind(x=mds.norm.corr$x, y=mds.norm.corr$y, meta)
-
 plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
 plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$date)) + labs(colour="date")
 
@@ -364,6 +340,16 @@ multiplot(plotlist = plots, cols=2)
 ```
 
 ![](03_normalisation_files/figure-html/PCAcorrected-1.png)<!-- -->
+
+There is also separation by somite level.
+
+
+```r
+ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$somite))) + labs(colour="somite")
+```
+
+![](03_normalisation_files/figure-html/PCAcorrected.somite-1.png)<!-- -->
+
 
 #### PCA
 
@@ -404,6 +390,15 @@ multiplot(plotlist = plots, cols=2)
 ```
 
 ![](03_normalisation_files/figure-html/PCAcorrectedPca-1.png)<!-- -->
+
+Separation by somite is less clear but still evident.
+
+
+```r
+ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$somite))) + labs(colour="somite")
+```
+
+![](03_normalisation_files/figure-html/PCAcorrectedPca.somite-1.png)<!-- -->
 
 This strategy should increase our power to detect differentially accessible regions based on the design including stage and somite. However, any other biological effects that are not captured by that model might be removed by some of these PCs. *Maybe that's ok when we are focusing specifically on changes between somites or stages.*
 

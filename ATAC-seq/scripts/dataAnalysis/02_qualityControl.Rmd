@@ -172,7 +172,7 @@ means <- rowMeans(expr[,-1])
 # plot(density(means))
 
 keep <- means > log2(10) # use only moderately to highly expressed genes
-# summary(keep) # 10186  
+# summary(keep) # 8025  
 genes <- names(means[keep])
 
 ## keep the earliest TSS for each expressed gene
