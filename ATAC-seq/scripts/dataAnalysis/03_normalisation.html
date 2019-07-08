@@ -344,7 +344,7 @@ peakCounts &lt;- regionCounts(paste0(dir, &quot;ATAC-seq/data/BWA/&quot;, bam.fi
 saveRDS(peakCounts, paste0(dir, &quot;ATAC-seq/results/03_peakCounts_all.Rds&quot;))
 
 meta$readsInPeakSet &lt;- colSums(assay(peakCounts))
-write.table(meta, paste0(dir, &quot;ATAC-seq/data/metadata_ATACseq.tsv&quot;), quote = FALSE, sep=&quot;\t&quot;, row.names = FALSE)</code></pre>
+write.table(meta, paste0(dir, &quot;ATAC-seq/data/metadata_ATACseq_GQ.tsv&quot;), quote = FALSE, sep=&quot;\t&quot;, row.names = FALSE)</code></pre>
 </div>
 <div id="normalisation" class="section level3">
 <h3>Normalisation</h3>
@@ -375,7 +375,7 @@ summary(keep.overlap)</code></pre>
 <pre><code>##     Mode    FALSE     TRUE 
 ##  logical 30173825  3177316</code></pre>
 <p>Since we used all samples to call peaks, we have increased power greatly, allowing calling of very low enrichment regions on a per sample basis. Thus, besides restricting the analysis to windows within peaks, we also need to filter out those that are of too low abundance, since we won’t have power to do any differential testing on them.</p>
-<p>A cutoff of 4 average counts per sample retains a similar number of windows to those that overlap peaks. And the two filters agree quite well.</p>
+<p>A cutoff of 4 average counts per window retains a similar number of windows to those that overlap peaks. And the two filters agree quite well.</p>
 <pre class="r"><code>abundances &lt;- aveLogCPM(asDGEList(winCounts)) ## this are mean abundance corrected for library size
 # plot(density(abundances))
 keep.minCount &lt;- abundances &gt; aveLogCPM(4, lib.size = mean(winCounts$totals))

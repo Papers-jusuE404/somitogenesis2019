@@ -100,7 +100,7 @@ peakCounts <- regionCounts(paste0(dir, "ATAC-seq/data/BWA/", bam.files), peakSet
 saveRDS(peakCounts, paste0(dir, "ATAC-seq/results/03_peakCounts_all.Rds"))
 
 meta$readsInPeakSet <- colSums(assay(peakCounts))
-write.table(meta, paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
+write.table(meta, paste0(dir, "ATAC-seq/data/metadata_ATACseq_GQ.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
 ```
 
 
@@ -146,7 +146,7 @@ summary(keep.overlap)
 
 Since we used all samples to call peaks, we have increased power greatly, allowing calling of very low enrichment regions on a per sample basis. Thus, besides restricting the analysis to windows within peaks, we also need to filter out those that are of too low abundance, since we won't have power to do any differential testing on them.
 
-A cutoff of 4 average counts per sample retains a similar number of windows to those that overlap peaks. And the two filters agree quite well.
+A cutoff of 4 average counts per window retains a similar number of windows to those that overlap peaks. And the two filters agree quite well.
 
 ```{r lowAbundance}
 abundances <- aveLogCPM(asDGEList(winCounts)) ## this are mean abundance corrected for library size
