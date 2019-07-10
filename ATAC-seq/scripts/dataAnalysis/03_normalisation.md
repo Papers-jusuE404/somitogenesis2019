@@ -282,7 +282,7 @@ This suggests that the normalisation hasn't successfully removed efficiency bias
 
 In order to remove the remaining technical variation in the data after the trended normalisation we can use surrogate variable analysis (sva) to infer the systematic effects in the data, that are not due to our conditions of interest.
 
-We use the `sva` function from the `sva` package. The input data is the normalised counts. The algorithm identifies 12 surrogate variables (SVs).
+We use the `sva` function from the `sva` package. The input data is the normalised counts. The algorithm identifies 1 surrogate variable (SV).
 
 
 ```r
@@ -292,12 +292,13 @@ design <- model.matrix(~0+group, meta)
 colnames(design) <- paste0("stage",levels(meta$group))
 
 ## SVA
+n.sv = num.sv(re.adjc, design, method="leek", seed=174)
 mod0 = model.matrix(~1, data=meta)
-svobj = sva(re.adjc, design, mod0)
+svobj = sva(re.adjc, design, mod0, n.sv = n.sv)
 ```
 
 ```
-## Number of significant surrogate variables is:  12 
+## Number of significant surrogate variables is:  1 
 ## Iteration (out of 5 ):1  2  3  4  5
 ```
 
@@ -305,7 +306,7 @@ svobj = sva(re.adjc, design, mod0)
 write.table(svobj$sv, paste0(dir, "ATAC-seq/results/03_svs_trendNormData.tab"), quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
 ```
 
-This first SV is strongly correlated with the FRiP, and thus should remove the effects observed above.
+This SV is strongly correlated with the FRiP, and thus should remove the effects observed above.
 
 
 ```r
@@ -315,11 +316,11 @@ plot(svobj$sv[,1], meta$readsInPeakSet/meta$goodQuality*100, xlab="SV1", ylab="F
 ![](03_normalisation_files/figure-html/sv1_vs_frip-1.png)<!-- -->
 
 ```r
-# cor(svobj$sv[,1], meta$readsInPeakSet/meta$goodQuality*100) # -0.62
-# cor(svobj$sv[,1], meta$goodQuality) # 0.296
+# cor(svobj$sv[,1], meta$readsInPeakSet/meta$goodQuality*100) # -0.63
+# cor(svobj$sv[,1], meta$goodQuality) # 0.27
 ```
 
-We can regress out these SVs and redo the PCA with the corrected data. In this case, samples very well by stage, and there is no correlation with FRiP in the first two components.
+We can regress out this SV and redo the PCA with the corrected data. In this case, samples separate a bit better by stage, and there is no correlation with FRiP in the first two components.
 
 
 ```r
@@ -340,15 +341,6 @@ multiplot(plotlist = plots, cols=2)
 ```
 
 ![](03_normalisation_files/figure-html/PCAcorrected-1.png)<!-- -->
-
-There is also separation by somite level.
-
-
-```r
-ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$somite))) + labs(colour="somite")
-```
-
-![](03_normalisation_files/figure-html/PCAcorrected.somite-1.png)<!-- -->
 
 
 #### PCA
@@ -390,15 +382,6 @@ multiplot(plotlist = plots, cols=2)
 ```
 
 ![](03_normalisation_files/figure-html/PCAcorrectedPca-1.png)<!-- -->
-
-Separation by somite is less clear but still evident.
-
-
-```r
-ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$somite))) + labs(colour="somite")
-```
-
-![](03_normalisation_files/figure-html/PCAcorrectedPca.somite-1.png)<!-- -->
 
 This strategy should increase our power to detect differentially accessible regions based on the design including stage and somite. However, any other biological effects that are not captured by that model might be removed by some of these PCs. *Maybe that's ok when we are focusing specifically on changes between somites or stages.*
 
