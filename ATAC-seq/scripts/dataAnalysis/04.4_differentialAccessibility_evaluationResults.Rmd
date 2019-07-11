@@ -26,11 +26,11 @@ dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
 
 We have performed differential accessibility analyses testing differences between the somite trios and across developmental stages. The data has been normalised to account for trended efficiency biases. We have used different approaches, 
 
-1. DA testing directly of the normalised data.
-2. Testing with an added surrogate variable (SV) that captures observed residual effects of efficiency biases.
-3. Testing with added 18 PCs from sunning PCA on the residuals of the model fit with the biological design of interest.
+1. **Baseline**: DA testing directly of the normalised data.
+2. **SVA approach**: testing with an added surrogate variable (SV) that captures observed residual effects of efficiency biases.
+3. **PCA approach**: testing with added 18 PCs from running PCA on the residuals of the model fit with the biological design of interest.
 
-A PCA of the normalised data shows strong correlation of the first PCs with the fraction of reads in peaks (FRiP), suggesting the normalisation hasn't completely removed technical biases. After regressing out the inferred SV, PCs no longer correlate with FRiP and segregate by stage a little bit better. If instead the 18 PCs are regressed out, samples cluster clearly by stage. This suggests that there are residual technical affects in the data and capturing them through PCA on the residuals produces a much cleaner dataset, with obvious differences between the biological groups of interest.
+A PCA of the normalised data shows strong correlation of the first PCs with the fraction of reads in peaks (FRiP), suggesting the normalisation hasn't completely removed technical biases. After regressing out the inferred SV, PCs no longer correlate with FRiP and segregate by stage a little bit better. If instead the 18 PCs are regressed out, samples cluster clearly by stage. This suggests that there are residual technical effects in the data and capturing them through PCA on the residuals produces a much cleaner dataset, with obvious differences between the biological groups of interest.
 
 So let's compare the results obtained with each approach. We take the results from using averaged values (across stages for somite comparisons, and across somites for stages comparisons), to make things easier.
 
@@ -49,15 +49,15 @@ trios.norm <- sapply(1:3, function(x) trios.norm[[x]] <- trios.norm[[x]][trios.n
 trios.sva <- sapply(1:3, function(x) trios.sva[[x]] <- trios.sva[[x]][trios.sva[[x]]$FDR<0.05,])
 trios.pca <- sapply(1:3, function(x) trios.pca[[x]] <- trios.pca[[x]][trios.pca[[x]]$FDR<0.05,])
 
-nDE <- t(data.frame(norm=unlist(lapply(trios.norm, length)), SVA=unlist(lapply(trios.sva, length)), PCA=unlist(lapply(trios.pca, length))))
+nDE <- t(data.frame(baseline=unlist(lapply(trios.norm, length)), SVA=unlist(lapply(trios.sva, length)), PCA=unlist(lapply(trios.pca, length))))
 colnames(nDE) <- c("somiteIvsII", "somiteIIIvsI", "somiteIIIvsII")
 nDE
 ```
 
-Given the numbers, let's just compare the results for the somite I vs III comparison. Most of the regions significant after controlling for the SV are also significant when regressing out the PCs. When using only the normalised data, a large fraction of the regions overlap with those detected with the `sva` and `pca` approaches, but still a significant fraction `r round(168/length(trios.norm[[2]])*100,2)`% are not reproduced.  
+Given the numbers, let's just compare the results for the somite I vs III comparison. Most of the regions significant after controlling for the SV are also significant when regressing out the PCs. When using only the normalised data, a large fraction of the regions overlap with those detected with the `sva` and `pca` approaches, but still a significant fraction (`r round(178/length(trios.norm[[2]])*100,2)`%) are not reproduced.  
 
 ```{r overlap, warning=FALSE, message=FALSE}
-overlap <- makeVennDiagram(list(NORM=trios.norm[[2]], SVA=trios.sva[[2]], PCA=trios.pca[[2]]), fill=c("tomato1", "steelblue", "darkolivegreen2"), alpha=0.25, cat.col=c("tomato1", "steelblue", "darkolivegreen4"), cat.fontface=2)
+overlap <- makeVennDiagram(list(base=trios.norm[[2]], SVA=trios.sva[[2]], PCA=trios.pca[[2]]), fill=c("tomato1", "steelblue", "darkolivegreen2"), alpha=0.25, cat.col=c("tomato1", "steelblue", "darkolivegreen4"), cat.fontface=2)
 ```
 
 The regions that are not reproduced in the other methods tend to have much higher FDRs, suggesting they are not as robust.
@@ -66,25 +66,24 @@ The regions that are not reproduced in the other methods tend to have much highe
 norm_only <- trios.norm[[2]][trios.norm[[2]] %outside% unique(c(trios.sva[[2]], trios.pca[[2]]))]
 shared <- trios.norm[[2]][trios.norm[[2]] %outside% norm_only]
 
-df <- data.frame(FDR = c(shared$FDR, norm_only$FDR), norm_regions=c(rep("shared", length(shared)), rep("unique", length(norm_only))))
-ggplot(df, aes(norm_regions, FDR)) + geom_violin() + geom_boxplot(width=0.075)
+df <- data.frame(FDR = c(shared$FDR, norm_only$FDR), baseline_regions=c(rep("shared", length(shared)), rep("unique", length(norm_only))))
+ggplot(df, aes(baseline_regions, FDR)) + geom_violin() + geom_boxplot(width=0.075)
 ```
 
 So, could these be false positives?
 
 We count the number of fragments mapped to the regions we defined as peaks through the `csaw` workflow, and normalise their abundance based on trended normalisation, similar to what we did with the windows.
 
-```{r peakCounts}
+```{r peakCounts, message=FALSE}
 ## metadata
-meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
-meta <- meta[meta$QCpass==1,]
+meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq_GQ.tsv"), stringsAsFactors = FALSE, header = TRUE)
 
 ## peak set
 filtered.data <- readRDS(file=paste0(dir, "ATAC-seq/results/03_windowCounts_filteredWindows.Rds"))
 merged <- mergeWindows(rowRanges(filtered.data), tol=150, max.width = 1500)
 
 ## count reads in peaks
-blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.rds"))
+blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.Rds"))
 param <- readParam(discard=blacklist, restrict=paste0("chr", c(1:19, "X")), pe="both", dedup=FALSE, BPPARAM=MulticoreParam(workers=24))
 peakCounts <- regionCounts(filtered.data$bam.files, merged$region, param = param)
 
@@ -124,8 +123,8 @@ cor.frip.unique <- sapply(1:nrow(tmp), function(x) cor(tmp[x,], meta$readsInPeak
 tmp <- re.adjc[paste0(as.data.frame(shared)[,1], ":", as.data.frame(shared)[,2], "-", as.data.frame(shared)[,3]),]
 cor.frip.shared <- sapply(1:nrow(tmp), function(x) cor(tmp[x,], meta$readsInPeakSet/meta$goodQuality*100))
 
-boxplot(abs(cor.frip.shared), abs(cor.frip.unique), names=c("shared", "norm-only"), ylab="Pearson r agains FRiP")
-# wilcox.test(abs(cor.frip.shared), abs(cor.frip.unique), alternative = "less") # p-value = 1.165e-10
+boxplot(abs(cor.frip.shared), abs(cor.frip.unique), names=c("shared", "baseline-only"), ylab="Pearson r against FRiP")
+# wilcox.test(abs(cor.frip.shared), abs(cor.frip.unique), alternative = "less") # p-value = 2.09e-13
 ```
 
 What about the regions that are gained when we use the PCA-based approach?
@@ -149,9 +148,24 @@ cor.frip.unique <- sapply(1:nrow(tmp), function(x) cor(tmp[x,], meta$readsInPeak
 tmp <- re.adjc[paste0(as.data.frame(shared)[,1], ":", as.data.frame(shared)[,2], "-", as.data.frame(shared)[,3]),]
 cor.frip.shared <- sapply(1:nrow(tmp), function(x) cor(tmp[x,], meta$readsInPeakSet/meta$goodQuality*100))
 
-boxplot(abs(cor.frip.shared), abs(cor.frip.unique), names=c("shared", "PCA-only"), ylab="Pearson r agains FRiP")
-# wilcox.test(abs(cor.frip.shared), abs(cor.frip.unique), alternative = "less") # p-value = 0.9998
+boxplot(abs(cor.frip.shared), abs(cor.frip.unique), names=c("shared", "PCA-only"), ylab="Pearson r against FRiP")
+# wilcox.test(abs(cor.frip.shared), abs(cor.frip.unique), alternative = "less") # p-value = 1
 ```
+
+Although this suggests that the gained regions are not due to technical effects and that the PCA-approach has been successful in accounting for uninteresting variation and has increased power greatly. However, with such increase in power there is also the risk of identifying very small differences that are not biologically meaningful, and thus it is important to examine the fold-change of the significant regions. Since the analysis is performed at the window level and these are then merged into regions, it is not straight forward to compute a fold-change. But we can take the most significantly differential window's fold-change as a proxy.
+
+Generally, most regions have a reasonable fold-change.
+
+```{r fold-change.trios}
+df <- data.frame(fc=c(shared$logFC, pca_only$logFC), shared=c(rep("yes",length(shared)), rep("no", length(pca_only))))
+df$shared <- relevel(df$shared, "yes")
+ggplot(df, aes(shared, fc)) + geom_violin() + geom_hline(yintercept = c(-log2(1.5), log2(1.5)), lty=2) + ylab("log2 fold-change")
+#+ geom_hline(yintercept = c(median(df[df$shared=="yes" & df$fc>0,1]), median(df[df$shared=="yes" & df$fc<0,1]), median(df[df$shared=="no" & df$fc>0,1]), median(df[df$shared=="no" & df$fc<0,1])))
+
+# sum(abs(df$fc) > log2(1.5))/nrow(df)*100 # 90.3% (1329 regions)
+```
+
+The majority (`r round(sum(abs(df$fc) > log2(1.5))/nrow(df)*100,2)`%) have an absolute fold-change of 1.5 or higher. Thus, it seems like we are not overpowered in detecting regions that are not meaningful, but we can still filter out those regions with fold-changes smaller than 1.5.
 
 ### Stage differences
 
@@ -185,7 +199,7 @@ df <- data.frame(FDR = c(shared$FDR, norm_only$FDR), norm_regions=c(rep("shared"
 ggplot(df, aes(norm_regions, FDR)) + geom_violin() + geom_boxplot(width=0.075)
 ```
 
-But the difference in correlation values with FRiP is not as obvious.
+The difference in correlation values with FRiP is not as obvious but still significant.
 
 ```{r cor.frip.stage}
 tmp <- re.adjc[paste0(as.data.frame(norm_only)[,1], ":", as.data.frame(norm_only)[,2], "-", as.data.frame(norm_only)[,3]),]
@@ -195,10 +209,10 @@ tmp <- re.adjc[paste0(as.data.frame(shared)[,1], ":", as.data.frame(shared)[,2],
 cor.frip.shared <- sapply(1:nrow(tmp), function(x) cor(tmp[x,], meta$readsInPeakSet/meta$goodQuality*100))
 
 boxplot(abs(cor.frip.shared), abs(cor.frip.unique), names=c("shared", "norm-only"), ylab="Pearson r agains FRiP")
-# wilcox.test(abs(cor.frip.shared), abs(cor.frip.unique), alternative = "less") # p-value = 9.418e-07
+# wilcox.test(abs(cor.frip.shared), abs(cor.frip.unique), alternative = "less") # p-value = 4.917e-10
 ```
 
-And the same for the regions gained with the PCA approach. High FDRs
+And the same for the regions gained with the PCA approach. Higher FDRs
 
 ```{r pcaOnly.stage, message=FALSE}
 pca_only <- stage.pca[stage.pca %outside% unique(c(stage.sva, stage.norm))]
@@ -208,7 +222,7 @@ df <- data.frame(FDR = c(shared$FDR, pca_only$FDR), norm_regions=c(rep("shared",
 ggplot(df, aes(norm_regions, FDR)) + geom_violin() + geom_boxplot(width=0.075)
 ```
 
-and no difference in correlation values whatsoever.
+but no difference in correlation values whatsoever.
 
 ```{r cor.frip.stage2}
 tmp <- re.adjc[paste0(as.data.frame(pca_only)[,1], ":", as.data.frame(pca_only)[,2], "-", as.data.frame(pca_only)[,3]),]
@@ -221,8 +235,24 @@ boxplot(abs(cor.frip.shared), abs(cor.frip.unique), names=c("shared", "norm-only
 # wilcox.test(abs(cor.frip.shared), abs(cor.frip.unique), alternative = "less") # p-value = 1
 ```
 
-Based on this, it seems like the approach using only the normalised data without covariates returns a few false positives. But more importantly, the approach with the PCA covariates increases power greatly, retrieving many more significant regions. The gained regions seem to be true positives, so we will continue with this set of DA results in downstream analyses.
+And in this case the fold-changes are again quite large for most regions.
 
+```{r fold-change.stage}
+tmp <- as.data.frame(mcols(shared)[,35:49])
+s <- apply(tmp, 1, function(x) x[which.max(abs(x))])
+tmp <- as.data.frame(mcols(pca_only)[,35:49])
+p <- apply(tmp, 1, function(x) x[which.max(abs(x))])
+
+df <- data.frame(fc=c(s, p), shared=c(rep("yes",length(shared)), rep("no", length(pca_only))))
+df$shared <- relevel(df$shared, "yes")
+ggplot(df, aes(shared, fc)) + geom_violin() + geom_hline(yintercept = c(-log2(1.5), log2(1.5)), lty=2) + ylab("log2 fold-change")
+
+# sum(abs(df$fc) > log2(1.5))/nrow(df)*100 # 97.3% (1329 regions)
+```
+
+Almost all regions have a fold-change of at least 1.5 (`r round(sum(abs(df$fc) > log2(1.5))/nrow(df)*100,2)`%) and even (`r round(sum(abs(df$fc) > log2(2))/nrow(df)*100,2)`%) are above 2.
+
+Based on this, it seems like the approach using only the normalised data without covariates returns a few false positives. But more importantly, the approach with the PCA covariates increases power greatly, retrieving many more significant regions. The gained regions seem to be true positives, so we will continue with this set of DA results in downstream analyses.
 
 
 ```{r info}

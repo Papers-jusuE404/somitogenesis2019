@@ -26,14 +26,11 @@ We have ATAC-seq data for 50 good-quality samples, comprising the last three gen
 
 ```{r data}
 ## metadata
-meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq_GQ.tsv"), stringsAsFactors = FALSE, header = TRUE)
 meta <- meta[meta$QCpass==1,]
 
 ## data
 filtered.data <- readRDS(paste0(dir, "ATAC-seq/results/03_windowCounts_filteredWindows.Rds"))
-sf.trended <- readRDS(paste0(dir, "ATAC-seq/results/03_trendedNorm_sizeFactors.Rds"))
-
-norm.counts <- log2(assay(filtered.data)+0.5) - sf.trended/log(2)
 ```
 
 We have defined a set of peaks representing regions of open chromatin, and computed the sequencing data counts for 150bp windows covering such loci. We have used a trended-normalisation approach to remove systematic biases. On this normalised dataset, the major source of variation was still strongly correlated to the fraction of reads in peaks (FRiP) for each sample. Thus, we have tried two approaches to capture such variation:
@@ -56,7 +53,6 @@ pcs <- read.table(paste0(dir, "ATAC-seq/results/03_pcs_residuals.tab"))
 
 ## edgeR object
 y <- asDGEList(filtered.data)
-y$offset <- sf.trended
 
 ## design
 meta$group <- factor(paste(meta$stage, meta$somite, sep="."))

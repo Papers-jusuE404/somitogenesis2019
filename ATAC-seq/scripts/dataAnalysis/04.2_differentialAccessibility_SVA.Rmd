@@ -26,14 +26,11 @@ We have ATAC-seq data for 50 good-quality samples, comprising the last three gen
 
 ```{r data}
 ## metadata
-meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq_GQ.tsv"), stringsAsFactors = FALSE, header = TRUE)
 meta <- meta[meta$QCpass==1,]
 
 ## data
 filtered.data <- readRDS(paste0(dir, "ATAC-seq/results/03_windowCounts_filteredWindows.Rds"))
-sf.trended <- readRDS(paste0(dir, "ATAC-seq/results/03_trendedNorm_sizeFactors.Rds"))
-
-norm.counts <- log2(assay(filtered.data)+0.5) - sf.trended/log(2)
 ```
 
 
@@ -57,15 +54,14 @@ svobj <- read.table(paste0(dir, "ATAC-seq/results/03_svs_trendNormData.tab"))
 
 ## edgeR object
 y <- asDGEList(filtered.data)
-y$offset <- sf.trended
 
 ## design
 meta$group <- factor(paste(meta$stage, meta$somite, sep="."))
 design <- model.matrix(~0+group, meta)
 colnames(design) <- paste0("stage",levels(meta$group))
 
-design <- cbind(design, svobj[,1])
-colnames(design)[ncol(design)] <- "sv1"
+design <- cbind(design, svobj)
+colnames(design)[-c(1:18)] <- paste0("sv", 1:ncol(svobj))
 
 ## dispersion
 y <- estimateDisp(y, design)
