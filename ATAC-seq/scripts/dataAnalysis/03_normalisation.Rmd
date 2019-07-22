@@ -257,7 +257,7 @@ plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$goodQuality))
 plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSet/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
 multiplot(plotlist = plots, cols=2)
 
-# cor(df$PC1, df$readsInPeakSet/df$goodQuality*100) # -0.59
+# cor(df$PC1, df$readsInPeakSet/df$goodQuality*100) # -0.59, p-value = 5.3e-06
 # cor(df$PC1, df$goodQuality) # 0.34
 ```
 
