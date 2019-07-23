@@ -70,7 +70,7 @@ for(i in 1:ncol(svobj$sv)){
 
 ![](02_removeTechnicalVar_files/figure-html/sva-1.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-2.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-3.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-4.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-5.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-6.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-7.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-8.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-9.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-10.png)<!-- -->![](02_removeTechnicalVar_files/figure-html/sva-11.png)<!-- -->
 
-With so many SVs it is a bit difficult to know whether some are capturing biological variation not explicit in the model, which would be unfortunate.
+With so many SVs it is a bit difficult to know whether some are capturing biological variation not explicit in the model, which could be unfortunate.
 
 To investigate this, we look at whether any genes are strongly correlated with the SVs. Ideally, most genes won't be.
 
@@ -172,7 +172,7 @@ Again, we can regress out these PCs and rerun the PCA to check the batch effect.
 
 ```r
 # plugging 'dataNorm' into scran::parallelPCA() returns 14
-dataNorm.pca <- removeBatchEffect(dataNorm[,-1], design = model.matrix(~0+group, meta), covariates = pca$x[,1:14])
+dataNorm.pca <- removeBatchEffect(dataNorm[,-1], design = model.matrix(~0+group, meta), covariates = pcs$x[,1:14])
 
 vars <- rowVars(dataNorm.pca)
 names(vars) <- row.names(dataNorm.pca)
