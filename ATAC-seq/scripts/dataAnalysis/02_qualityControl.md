@@ -96,13 +96,13 @@ tmp
 ```
 
 ```
-##                 0       1        2        3        4
-## Min.        6.000    81.0    83.00     7.00  2811.00
-## 1st Qu.  1653.000 16242.5 18813.75 21671.25 27692.50
-## Median   6807.000 23763.5 30960.50 35456.00 51105.50
-## Mean     9629.824 23284.0 30839.86 34618.10 41830.12
-## 3rd Qu. 13553.000 30242.0 44903.50 49600.00 54406.00
-## Max.    30594.000 49674.0 67413.00 59371.00 64529.00
+##                 0        1        2        3        4
+## Min.        6.000  5273.00    81.00     7.00  2811.00
+## 1st Qu.  1549.500 10405.00 18073.00 22163.00 27692.50
+## Median   5609.000 20477.00 31206.00 35081.00 49137.50
+## Mean     9756.812 19632.57 30180.81 34670.43 41338.12
+## 3rd Qu. 15469.750 27812.50 45151.00 50070.00 54406.00
+## Max.    30594.000 35243.00 67413.00 59371.00 64529.00
 ```
 
 A cutoff of 15 thousand peaks removes the lowest third of the data.
@@ -179,7 +179,7 @@ Another measure of the quality of an ATAC-seq library is the degree of enrichmen
 ensembl <- useMart(host = 'http://apr2019.archive.ensembl.org', 
                    biomart = 'ENSEMBL_MART_ENSEMBL', dataset = 'mmusculus_gene_ensembl')
 
-tss <- getBM(attributes=c('ensembl_gene_id', 'external_gene_name', 'chromosome_name', 'transcription_start_site'), mart = ensembl)
+tss <- getBM(attributes=c('ensembl_gene_id', 'external_gene_name', 'chromosome_name', 'transcription_start_site', 'strand'), mart = ensembl)
 
 ## retain only expressed genes
 expr <- read.table(paste0(dir, "RNA-seq/data/geneCounts.NORM_logCPM.tsv"))
@@ -195,11 +195,19 @@ tss <- tss[tss$ensembl_gene_id %in% genes,]
 tmp <- tss[tss$ensembl_gene_id %in% unique(tss[duplicated(tss$ensembl_gene_id),1]),]
 tss <- tss[!(tss$ensembl_gene_id %in% unique(tss[duplicated(tss$ensembl_gene_id),1])),]
 
-min <- sapply(unique(tmp$ensembl_gene_id), function(x) min(tmp[tmp$ensembl_gene_id==x,4]))
-tmp <- unique(tmp[,1:3])
-tmp$transcription_start_site <- min[tmp$ensembl_gene_id]
+# for genes in the + strand keep the earliest TSS
+tmp.plus <- tmp[tmp$strand==1,]
+min <- sapply(unique(tmp.plus$ensembl_gene_id), function(x) min(tmp.plus[tmp.plus$ensembl_gene_id==x,4]))
+tmp.plus <- unique(tmp.plus[,1:3])
+tmp.plus$transcription_start_site <- min[tmp.plus$ensembl_gene_id]
 
-tss <- rbind(tss, tmp)
+# for genes in the - strand keep the latest TSS (which is the earliest in the reverse strand)
+tmp.minus <- tmp[tmp$strand== -1,]
+max <- sapply(unique(tmp.minus$ensembl_gene_id), function(x) max(tmp.minus[tmp.minus$ensembl_gene_id==x,4]))
+tmp.minus <- unique(tmp.minus[,1:3])
+tmp.minus$transcription_start_site <- max[tmp.minus$ensembl_gene_id]
+
+tss <- rbind(tss[,-ncol(tss)], tmp.minus, tmp.plus)
 row.names(tss) <- tss$ensembl_gene_id; tss$ensembl_gene_id <- NULL
 
 ## export as BED file (start is 0-based in BED files)
@@ -221,6 +229,7 @@ We indeed see this, with values as high as nearly 10 fold enrichment at the TSS 
 ## read insertion counts
 tss <- list()
 for(sample in meta$sample){
+  # print(sample)
   tss[[sample]] <- matrix(read.table(paste0(dir, "ATAC-seq/TSS/", sample, ".TSScount.bed"), stringsAsFactors = FALSE)[,7], ncol = 2001, byrow = TRUE)
 }
 saveRDS(tss, paste0(dir, "ATAC-seq/results/02_TSSinsertionCounts.Rds"))
@@ -234,7 +243,7 @@ abline(v=4, lty=2)
 
 ![](02_qualityControl_files/figure-html/countInsertionsRes-1.png)<!-- -->
 
-Again, there is great variability in the degree of enrichment. We define a threshold to remove the tail of samples with low values; a cutoff of 4 discards the lowest third of the data.
+Again, there is great variability in the degree of enrichment. We define a threshold to remove the tail of samples with low values; a cutoff of 5 discards about the lowest third of the data.
 
 Below are the enrichment profiles for each sample, ordered by decreasing number of peaks and coloured by nucleosomal profile score.
 
@@ -244,7 +253,7 @@ par(mfrow=c(13,6), mar=c(2,2,2,2))
 for(sample in meta[order(meta$nPeaks, decreasing = TRUE),]$sample){
   plot(rollmean(tss.norm[sample,], k=25), type="l", lwd=5, main=sample, xlab="", ylab="", col=colors[meta[meta$sample==sample,]$insSizeDist+1], ylim=c(0,10), axes=FALSE)
   box(bty="l"); axis(1, at=c(0,1000,2000), labels = c("-1kb","TSS","1kb")); axis(2,las=2)
-  abline(h=4, lty=2, lwd=2)
+  abline(h=5, lty=2, lwd=2)
 }
 
 stopifnot(identical(row.names(tss.norm),meta$sample))
@@ -257,9 +266,7 @@ Again, there is a correlation of good TSS enrichment for samples with high numbe
 
 -----
 
-As an aside, we observe the greatest enrichment at the TSS, but progressively smaller peaks at ~200bp intervals there on. This reflects the signal coming from nucleosome-bound genes. Above I've plotted the aggregate profile of all genes, regardless of strand. If the analysis is split for genes in each strand, mirror profiles occur, with the nucleosomal pattern downstream of the TSS. 
-
-In the aggregate profiles we only observe the signal from genes in the + strand because signal for these genes is stronger (not sure why).
+As an aside, we observe the greatest enrichment at the TSS, but progressively smaller peaks at ~200bp intervals there on. This reflects the signal coming from nucleosome-bound genes. Above I've plotted the aggregate profile of all genes, regardless of strand. If the analysis is split for genes in each strand, mirror profiles occur, with the nucleosomal pattern downstream of the TSS.
 
 
 ```r
@@ -290,7 +297,7 @@ To assign a *pass* on each metric we require:
 
 - FRiP > 3%.
 
-- TSS score > 4.
+- TSS score > 5.
 
 And with these criteria, 67% of the samples have 3 or 4 passes.
 
@@ -300,7 +307,9 @@ qc <- data.frame(nuclosome = ifelse(meta$insSizeDist>=2, 1, 0), nPeaks = ifelse(
 row.names(qc) <- meta$sample
 # round(table(rowSums(qc))/nrow(qc)*100,2)
 # 0     1     2     3     4 
-# 18.67 12.00  2.67 14.67 52.00 
+# 10    10    5     8     42
+# 13.33 13.33  6.67 10.67 56.00  
+
 upset(qc, mainbar.y.label = "number of samples", sets.x.label = "number of samples\nthat pass", text.scale=1.25)
 ```
 

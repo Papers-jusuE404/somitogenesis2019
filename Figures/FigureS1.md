@@ -35,7 +35,7 @@ stopifnot(identical(substr(names(diagnostics), 1, nchar(names(diagnostics))-14),
 ## get a representative sample from each insert size score group
 samples <- c("e23_SII-2", "e16_SI-2", "e26_SII-2", "e32_SII-2", "e14_SII-2")
 
-# pdf(paste0(dir, "Figures/PDFs/FigureS1_insSizeDist.pdf"), width = 15, height = 3)
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_insSizeDist.pdf"), useDingbats=FALSE, width = 15, height = 3)
 par(mfrow=c(1,5), mar=c(2,2,2,2))
 for(i in 0:4){
   plot(density(diagnostics[[grep(samples[i+1], names(diagnostics))]]$sizes), axes=FALSE, main=paste("score =",i), xlab="", ylab="", lwd=3, xlim=c(0,1000))
@@ -56,7 +56,7 @@ plots[[1]] <- ggplot(meta, aes(as.factor(insSizeDist), size)) + geom_boxplot() +
 plots[[2]] <- ggplot(meta, aes(as.factor(insSizeDist), log10(conc))) + geom_boxplot() + ggtitle("DNA concentration") + xlab("insert size dist score") + ylab(expression('log'[10]*' [nM]')) + th
 plots[[3]] <- ggplot(meta, aes(as.factor(insSizeDist), goodQuality/1e6)) + geom_boxplot() + ggtitle("Total unique GQ alignments") + xlab("insert size dist score") + ylab("million") + th
 
-# postscript(paste0(dir, "Figures/PDFs/FigureS1_insSizeDist_corrs.eps"), width = 12, height = 4)
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_insSizeDist_corrs.pdf"), useDingbats=FALSE, width = 12, height = 4)
 multiplot(plotlist = plots, cols=3)
 ```
 
@@ -66,37 +66,6 @@ multiplot(plotlist = plots, cols=3)
 # dev.off()
 ```
 
-
-#### Peak calling
-
-
-```r
-data_summary <- function(x) {
-   m <- mean(x)
-   ymin <- m-sd(x)
-   ymax <- m+sd(x)
-   return(c(y=m,ymin=ymin,ymax=ymax))
-}
-
-plots <- list()
-plots[[1]] <- ggplot(meta, aes(as.factor(insSizeDist), nPeaks/1e3)) + geom_violin() + geom_jitter(width=0.15) + xlab("insert size dist score") + ylab("number of peaks x 1000") + stat_summary(fun.data=data_summary, col="red") + th
-plots[[2]] <- ggplot(meta, aes(as.factor(insSizeDist), readsInPeaks/goodQuality*100)) + geom_violin() + geom_jitter(width=0.15) +  xlab("insert size dist score") + ylab("FRiP") + stat_summary(fun.data=data_summary, col="red") + th
-
-# plots <- list()
-# plots[[1]] <- ggplot(meta, aes(as.factor(insSizeDist), nPeaks/1e3)) + geom_violin() + geom_jitter(width=0.15) + xlab("insert size dist score") + ylab("number of peaks x 1000") + stat_summary(fun.data=data_summary, col="red") + th + geom_hline(yintercept = c(2.652, 5.273, 23.985, 35.831, 57.994))
-# plots[[2]] <- ggplot(meta, aes(as.factor(insSizeDist), readsInPeaks/goodQuality*100)) + geom_violin() + geom_jitter(width=0.15) +  xlab("insert size dist score") + ylab("FRiP") + stat_summary(fun.data=data_summary, col="red") + th + geom_hline(yintercept = c(0.3089941, 0.9290860, 4.5579091, 7.9610104, 19.8634197))
-
-# postscript(paste0(dir, "Figures/PDFs/FigureS1_numberPeaks.eps"), width = 8, height = 4)
-multiplot(plotlist = plots, cols=2)
-```
-
-![](FigureS1_files/figure-html/peakCalls-1.png)<!-- -->
-
-```r
-# dev.off()
-# geom_dotplot(binaxis='y', stackdir='center', dotsize=0.7)
-```
-
 #### TSS enrichment
 
 
@@ -104,12 +73,12 @@ multiplot(plotlist = plots, cols=2)
 tss <- readRDS(paste0(dir, "ATAC-seq/results/02_TSSinsertionCounts.Rds"))
 tss.norm <- t(do.call("cbind", lapply(tss, function(x) colMeans(x)/mean(colMeans(x[,c(1:100,1901:2001)])))))
 
-# pdf(paste0(dir, "Figures/PDFs/FigureS1_TSSenrich.pdf"), width = 15, height = 3)
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_TSSenrich.pdf"), useDingbats=FALSE, width = 15, height = 3)
 par(mfrow=c(1,5), mar=c(2,2,2,2))
 for(sample in samples){
-  plot(rollmean(tss.norm[sample,], k=25), type="l", lwd=3, main=sample, xlab="", ylab="", ylim=c(1,7), axes=FALSE)
+  plot(rollmean(tss.norm[sample,], k=25), type="l", lwd=3, main=sample, xlab="", ylab="", ylim=c(1,8), axes=FALSE)
   box(bty="l"); axis(1, at=c(0,1000,2000), labels = c("-1kb","TSS","1kb")); axis(2,las=2)
-  abline(h=4, lty=2, lwd=2)
+  abline(h=5, lty=2, lwd=2)
 }
 ```
 
@@ -119,6 +88,35 @@ for(sample in samples){
 # dev.off()
 ```
 
+#### Peak calling
+
+
+```r
+# data_summary <- function(x) {
+#    m <- mean(x)
+#    ymin <- m-sd(x)
+#    ymax <- m+sd(x)
+#    return(c(y=m,ymin=ymin,ymax=ymax))
+# }
+
+## highlight the samples used above
+meta$sel <- ifelse(meta$sample %in% samples, 1, 0)
+
+plots <- list()
+plots[[1]] <- ggplot(meta, aes(as.factor(insSizeDist), nPeaks/1e3, colour=sel)) + geom_violin() + geom_jitter(width=0.15) + xlab("insert size dist score") + ylab("number of peaks x 1000") + geom_hline(yintercept = 15, lty=2, col="grey") + th + theme(legend.position = "none")
+plots[[2]] <- ggplot(meta, aes(as.factor(insSizeDist), readsInPeaks/goodQuality*100, colour=sel)) + geom_violin() + geom_jitter(width=0.15) +  xlab("insert size dist score") + ylab("FRiP") + geom_hline(yintercept = 3, lty=2, col="grey") + th + theme(legend.position = "none")
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_numberPeaks.pdf"), useDingbats=FALSE, width = 8, height = 4)
+multiplot(plotlist = plots, cols=2)
+```
+
+![](FigureS1_files/figure-html/peakCalls-1.png)<!-- -->
+
+```r
+# dev.off()
+```
+
+
 #### Quality control
 
 
@@ -126,7 +124,7 @@ for(sample in samples){
 qc <- data.frame(nuclosome = ifelse(meta$insSizeDist>=2, 1, 0), nPeaks = ifelse(meta$nPeaks > 15000, 1, 0), frip = ifelse(meta$readsInPeaks/meta$goodQuality*100 >= 3, 1, 0), tss = ifelse(meta$TSSscore > 4, 1, 0))
 row.names(qc) <- meta$sample
 
-# pdf(paste0(dir, "Figures/PDFs/FigureS1_upsetPlot.pdf"), width = 5, height = 5)
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_upsetPlot.pdf"), useDingbats=FALSE, width = 5, height = 5)
 upset(qc, mainbar.y.label = "number of samples", sets.x.label = "number of samples\nthat pass", text.scale=1.25)
 ```
 
@@ -135,11 +133,6 @@ upset(qc, mainbar.y.label = "number of samples", sets.x.label = "number of sampl
 ```r
 # dev.off()
 ```
-
-
-
-
-
 
 
 
