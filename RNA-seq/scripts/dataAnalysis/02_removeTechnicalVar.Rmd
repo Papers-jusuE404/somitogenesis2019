@@ -17,6 +17,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(edgeR)
 library(limma)
+library(DESeq2)
 library(ggplot2)
 library(RColorBrewer)
 library(sva)
@@ -159,7 +160,12 @@ We can check if the batch effect has been successfully removed by regressing out
 Samples cluster very clearly by stage, and now we can also see grouping by somite. The grouping by date is no longer evident.
 
 ```{r plotPCA, fig.width=12, fig.height=4, message=FALSE}
-dataNorm.sva <- removeBatchEffect(dataNorm[,-1], design = model.matrix(~0+group, meta), covariates = svobj$sv)
+## variance-stabilise data
+data <- data[row.names(dataNorm), colnames(dataNorm)]
+data.vst <- vst(as.matrix(data[,-1]))
+
+## remove SVs
+dataNorm.sva <- removeBatchEffect(data.vst, design = model.matrix(~0+group, meta), covariates = svobj$sv)
 
 vars <- rowVars(dataNorm.sva)
 names(vars) <- row.names(dataNorm.sva)
@@ -198,8 +204,9 @@ For this dataset we retain the first 14 PCs.
 Again, we can regress out these PCs and rerun the PCA to check the batch effect. The separation by stage is striking, and within each stage there is pretty clear separation by somite also. Clustering by batch is no longer observed.
 
 ```{r plotPCA2, fig.width=12, fig.height=4}
+## remove batch effect
 # plugging 'dataNorm' into scran::parallelPCA() returns 14
-dataNorm.pca <- removeBatchEffect(dataNorm[,-1], design = model.matrix(~0+group, meta), covariates = pcs$x[,1:14])
+dataNorm.pca <- removeBatchEffect(data.vst, design = model.matrix(~0+group, meta), covariates = pcs$x[,1:14])
 
 vars <- rowVars(dataNorm.pca)
 names(vars) <- row.names(dataNorm.pca)

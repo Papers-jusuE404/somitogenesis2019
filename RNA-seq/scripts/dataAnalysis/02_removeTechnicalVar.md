@@ -128,7 +128,12 @@ Samples cluster very clearly by stage, and now we can also see grouping by somit
 
 
 ```r
-dataNorm.sva <- removeBatchEffect(dataNorm[,-1], design = model.matrix(~0+group, meta), covariates = svobj$sv)
+## variance-stabilise data
+data <- data[row.names(dataNorm), colnames(dataNorm)]
+data.vst <- vst(as.matrix(data[,-1]))
+
+## remove SVs
+dataNorm.sva <- removeBatchEffect(data.vst, design = model.matrix(~0+group, meta), covariates = svobj$sv)
 
 vars <- rowVars(dataNorm.sva)
 names(vars) <- row.names(dataNorm.sva)
@@ -171,8 +176,9 @@ Again, we can regress out these PCs and rerun the PCA to check the batch effect.
 
 
 ```r
+## remove batch effect
 # plugging 'dataNorm' into scran::parallelPCA() returns 14
-dataNorm.pca <- removeBatchEffect(dataNorm[,-1], design = model.matrix(~0+group, meta), covariates = pcs$x[,1:14])
+dataNorm.pca <- removeBatchEffect(data.vst, design = model.matrix(~0+group, meta), covariates = pcs$x[,1:14])
 
 vars <- rowVars(dataNorm.pca)
 names(vars) <- row.names(dataNorm.pca)
@@ -233,35 +239,47 @@ sessionInfo()
 ## [11] LC_MEASUREMENT=en_GB.UTF-8 LC_IDENTIFICATION=C       
 ## 
 ## attached base packages:
-##  [1] grid      stats4    parallel  stats     graphics  grDevices utils    
+##  [1] grid      parallel  stats4    stats     graphics  grDevices utils    
 ##  [8] datasets  methods   base     
 ## 
 ## other attached packages:
-##  [1] org.Mm.eg.db_3.7.0   topGO_2.34.0         SparseM_1.77        
-##  [4] GO.db_3.7.0          AnnotationDbi_1.44.0 IRanges_2.16.0      
-##  [7] S4Vectors_0.20.1     Biobase_2.42.0       graph_1.60.0        
-## [10] BiocGenerics_0.28.0  sva_3.30.1           BiocParallel_1.16.6 
-## [13] genefilter_1.64.0    mgcv_1.8-24          nlme_3.1-137        
-## [16] RColorBrewer_1.1-2   ggplot2_3.1.1        edgeR_3.24.3        
-## [19] limma_3.38.3        
+##  [1] org.Mm.eg.db_3.7.0          topGO_2.34.0               
+##  [3] SparseM_1.77                GO.db_3.7.0                
+##  [5] AnnotationDbi_1.44.0        graph_1.60.0               
+##  [7] sva_3.30.1                  genefilter_1.64.0          
+##  [9] mgcv_1.8-24                 nlme_3.1-137               
+## [11] RColorBrewer_1.1-2          ggplot2_3.1.1              
+## [13] DESeq2_1.22.2               SummarizedExperiment_1.12.0
+## [15] DelayedArray_0.8.0          BiocParallel_1.16.6        
+## [17] matrixStats_0.54.0          Biobase_2.42.0             
+## [19] GenomicRanges_1.34.0        GenomeInfoDb_1.18.2        
+## [21] IRanges_2.16.0              S4Vectors_0.20.1           
+## [23] BiocGenerics_0.28.0         edgeR_3.24.3               
+## [25] limma_3.38.3               
 ## 
 ## loaded via a namespace (and not attached):
-##  [1] Rcpp_1.0.1         locfit_1.5-9.1     lattice_0.20-35   
-##  [4] assertthat_0.2.1   digest_0.6.18      R6_2.4.0          
-##  [7] plyr_1.8.4         RSQLite_2.1.1      evaluate_0.13     
-## [10] pillar_1.3.1       rlang_0.3.4        lazyeval_0.2.2    
-## [13] annotate_1.60.1    blob_1.1.1         Matrix_1.2-14     
-## [16] rmarkdown_1.12     labeling_0.3       splines_3.5.1     
-## [19] stringr_1.4.0      RCurl_1.95-4.12    bit_1.1-14        
-## [22] munsell_0.5.0      compiler_3.5.1     xfun_0.6          
-## [25] pkgconfig_2.0.2    htmltools_0.3.6    tidyselect_0.2.5  
-## [28] tibble_2.1.1       matrixStats_0.54.0 XML_3.98-1.15     
-## [31] crayon_1.3.4       dplyr_0.8.0.1      withr_2.1.2       
-## [34] bitops_1.0-6       xtable_1.8-3       gtable_0.3.0      
-## [37] DBI_1.0.0          magrittr_1.5       scales_1.0.0      
-## [40] stringi_1.4.3      tools_3.5.1        bit64_0.9-7       
-## [43] glue_1.3.1         purrr_0.3.2        survival_2.42-6   
-## [46] yaml_2.2.0         colorspace_1.4-1   memoise_1.1.0     
-## [49] knitr_1.22
+##  [1] bit64_0.9-7            splines_3.5.1          Formula_1.2-3         
+##  [4] assertthat_0.2.1       latticeExtra_0.6-28    blob_1.1.1            
+##  [7] GenomeInfoDbData_1.2.0 yaml_2.2.0             pillar_1.3.1          
+## [10] RSQLite_2.1.1          backports_1.1.4        lattice_0.20-35       
+## [13] glue_1.3.1             digest_0.6.18          XVector_0.22.0        
+## [16] checkmate_1.9.1        colorspace_1.4-1       htmltools_0.3.6       
+## [19] Matrix_1.2-14          plyr_1.8.4             XML_3.98-1.15         
+## [22] pkgconfig_2.0.2        zlibbioc_1.28.0        purrr_0.3.2           
+## [25] xtable_1.8-3           scales_1.0.0           htmlTable_1.13.1      
+## [28] tibble_2.1.1           annotate_1.60.1        withr_2.1.2           
+## [31] nnet_7.3-12            lazyeval_0.2.2         survival_2.42-6       
+## [34] magrittr_1.5           crayon_1.3.4           memoise_1.1.0         
+## [37] evaluate_0.13          foreign_0.8-71         tools_3.5.1           
+## [40] data.table_1.12.2      stringr_1.4.0          munsell_0.5.0         
+## [43] locfit_1.5-9.1         cluster_2.0.7-1        compiler_3.5.1        
+## [46] rlang_0.3.4            RCurl_1.95-4.12        rstudioapi_0.10       
+## [49] htmlwidgets_1.3        labeling_0.3           bitops_1.0-6          
+## [52] base64enc_0.1-3        rmarkdown_1.12         gtable_0.3.0          
+## [55] DBI_1.0.0              R6_2.4.0               gridExtra_2.3         
+## [58] knitr_1.22             dplyr_0.8.0.1          bit_1.1-14            
+## [61] Hmisc_4.2-0            stringi_1.4.3          Rcpp_1.0.1            
+## [64] geneplotter_1.60.0     rpart_4.1-13           acepack_1.4.1         
+## [67] tidyselect_0.2.5       xfun_0.6
 ```
 
