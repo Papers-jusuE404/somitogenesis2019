@@ -1,0 +1,274 @@
+---
+title: "Defining a common peak set"
+date: "1st August 2019"
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(GenomicRanges)
+library(ChIPpeakAnno)
+library(UpSetR)
+library(ggplot2)
+
+dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+
+#### FUNCTIONS
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols), byrow = TRUE)
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+th <- theme_bw() + theme(axis.text.x = element_text(size=10), axis.title.x = element_text(size=10), axis.text.y = element_text(size=10), axis.title.y = element_text(size=10), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5, size=10))
+```
+
+### Defining a common peak set
+
+We have merged all 50 good-quality samples to do peak-calling. This protects us from data snooping when performing differential analyses later on.
+
+However, there is a chance that we could be missing some stage-specific peaks because they get swamped by lack of signal in the other samples. And from the differential accessibility results we observed most, if not all, are changes in intensity, but not peaks present in some stages and absent in the rest. 
+
+Strong peaks shouldn't be affected by merging all samples but, as a sanity check, we have repeated the peak calling on a per-stage basis. Now let's see if we are missing anything substantial when all samples are combined.
+
+#### Per-stage peak calls
+
+We have variable numbers of replicates per stage that passed QC. This will result in variable power to call peaks
+
+```{r stages}
+meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq_GQ.tsv"), stringsAsFactors = FALSE, header = TRUE)
+df <- as.data.frame(table(meta$stage))
+colnames(df) <- c("stage", "numReplicates")
+df
+```
+
+Indeed, there is a positive correlation between the number of replicates and the number of peaks called, with the stages with 10-11 samples calling around 90,000 peaks, whereas the stages with only 5-7 samples are more within the ~75,000 range.
+
+```{r peaks}
+## all samples
+peakSet <- readRDS(paste0(dir, "ATAC-seq/results/03_peakSet_full.Rds"))
+
+## stage-specific
+blacklist <- readRDS(paste0(dir, "ATAC-seq/data/mm10-blacklist.v2.Rds"))
+
+stageSets <- list()
+for(s in paste0("stage", c(8,18,21,25,27,35))){
+  stageSets[[s]] <- read.table(paste0(dir, "ATAC-seq/peaks/",s,"_peaks.broadPeak"))
+  stageSets[[s]] <- GRanges(stageSets[[s]]$V1, IRanges(stageSets[[s]]$V2, stageSets[[s]]$V3), 
+                            fc=stageSets[[s]]$V7, qval=stageSets[[s]]$V9)
+  remove <- unique(queryHits(findOverlaps(stageSets[[s]], blacklist)))  # remove peaks in blacklisted regions
+  stageSets[[s]] <- stageSets[[s]][-remove]
+  names(stageSets[[s]]) <- paste0(seqnames(stageSets[[s]]), ":", start(stageSets[[s]]), "-", end(stageSets[[s]]))
+
+}
+df$numPeaks <- unlist(lapply(stageSets, length))
+df
+```
+
+When all samples are merged together we call `r length(peakSet)` peaks instead.
+
+Reassuringly, over 93% of all the peaks called on a per-stage basis are also in the all-samples (merged) set, which means we haven't missed much in the DA analyses.
+
+```{r overlaps}
+df$peaksInMerged <- c(length(unique(subjectHits(findOverlaps(peakSet, stageSets[["stage8"]])))),
+                      length(unique(subjectHits(findOverlaps(peakSet, stageSets[["stage18"]])))),
+                      length(unique(subjectHits(findOverlaps(peakSet, stageSets[["stage21"]])))),
+                      length(unique(subjectHits(findOverlaps(peakSet, stageSets[["stage25"]])))),
+                      length(unique(subjectHits(findOverlaps(peakSet, stageSets[["stage27"]])))),
+                      length(unique(subjectHits(findOverlaps(peakSet, stageSets[["stage35"]])))))
+df$peaksInMergedPct <- round(df$peaksInMerged/df$numPeaks*100,2)
+df
+```
+
+Still, there are about two thousand peaks present in the stage-specific calls, lost when all samples are merged together (more for stage35).
+
+```{r missed}
+stage8 <- stageSets[["stage8"]][stageSets[["stage8"]] %outside% peakSet]
+stage18 <- stageSets[["stage18"]][stageSets[["stage18"]] %outside% peakSet]
+stage21 <- stageSets[["stage21"]][stageSets[["stage21"]] %outside% peakSet]
+stage25 <- stageSets[["stage25"]][stageSets[["stage25"]] %outside% peakSet]
+stage27 <- stageSets[["stage27"]][stageSets[["stage27"]] %outside% peakSet]
+stage35 <- stageSets[["stage35"]][stageSets[["stage35"]] %outside% peakSet]
+
+data.frame(stage=paste0("stage", c(8,18,21,25,27,35)), missed=df$numPeaks-df$peaksInMerged)
+```
+
+But most of these are specific to one stage only, with very small numbers present in the calls from different stages.
+
+```{r shared}
+overlap <- t(data.frame(
+  stage8=c(length(unique(subjectHits(findOverlaps(stage8, stage18)))), length(unique(subjectHits(findOverlaps(stage8, stage21)))), length(unique(subjectHits(findOverlaps(stage8, stage25)))), length(unique(subjectHits(findOverlaps(stage8, stage27)))), length(unique(subjectHits(findOverlaps(stage8, stage35))))),
+  stage18=c(NA, length(unique(subjectHits(findOverlaps(stage18, stage21)))), length(unique(subjectHits(findOverlaps(stage18, stage25)))), length(unique(subjectHits(findOverlaps(stage18, stage27)))), length(unique(subjectHits(findOverlaps(stage18, stage35))))),
+  stage21=c(NA, NA, length(unique(subjectHits(findOverlaps(stage21, stage25)))), length(unique(subjectHits(findOverlaps(stage21, stage27)))), length(unique(subjectHits(findOverlaps(stage21, stage35))))),
+  stage25=c(NA, NA, NA, length(unique(subjectHits(findOverlaps(stage25, stage27)))), length(unique(subjectHits(findOverlaps(stage25, stage35))))),
+  stage27=c(NA, NA, NA, NA, length(unique(subjectHits(findOverlaps(stage27, stage35)))))))
+colnames(overlap) <- paste0("stage", c(18,21,25,27,35))
+overlap
+```
+
+While this might indicate very specific peaks, they are likely to be false positives, since we would expect a higher overlap between closely spaced stages (i.e., stage25 and stage27, which are adjacent sets of somites only share 58 peaks out of their ~1800).
+
+Consistent with these peaks being likely false positives, they tend to have small fold-changes and large q-values. Below, peaks are ranked based on their fold-change over background or on their q-value; smaller ranks are more intense/significant peaks. Those missed in the peak calls using all samples together have very large ranks, corresponding to the least significant peaks.
+
+```{r checkMissed, fig.width=8, fig.height=4}
+for(s in paste0("stage",c(8,18,21,25,27,35))){
+  df <- data.frame(peak=names(stageSets[[s]]), fc=stageSets[[s]]$fc, qval=stageSets[[s]]$qval, private=ifelse(names(stageSets[[s]]) %in% names(stageSets[[s]][stageSets[[s]] %outside% peakSet]), 1, 0))
+
+  plots <- list()
+  df <- df[order(df$fc, decreasing = TRUE),]
+  plots[[1]] <- ggplot(df, aes(as.factor(private), 1:nrow(df))) + geom_violin() + geom_boxplot(width=0.1) + xlab("missed in merged set") + ylab("rank fold-change over background") + th + ggtitle(s)
+  df <- df[order(df$qval, decreasing = TRUE),]
+  plots[[2]] <- ggplot(df, aes(as.factor(private), 1:nrow(df))) + geom_violin() + geom_boxplot(width=0.1) + xlab("missed in merged set") + ylab("rank q-value") + th + ggtitle(s)
+  multiplot(plotlist = plots, cols=2)
+}
+```
+
+Thus, the majority of the peaks called only on a per-stage basis seem to be low-confidence peak calls. But there are still some with large fold-changes and small q-values that could be true peaks.
+
+The few peaks with large fold-changes that actually look like peaks when plotting the data are almost always close to blacklisted regions.
+
+```{r dist_blacklist}
+stage8 <- stage8[order(stage8$fc, decreasing = TRUE)]
+stage8$blacklist <- mcols(distanceToNearest(stage8, blacklist))
+stage18 <- stage18[order(stage18$fc, decreasing = TRUE)]
+stage18$blacklist <- mcols(distanceToNearest(stage18, blacklist))
+stage21 <- stage21[order(stage21$fc, decreasing = TRUE)]
+stage21$blacklist <- mcols(distanceToNearest(stage21, blacklist))
+stage25 <- stage25[order(stage25$fc, decreasing = TRUE)]
+stage25$blacklist <- mcols(distanceToNearest(stage25, blacklist))
+stage27 <- stage27[order(stage27$fc, decreasing = TRUE)]
+stage27$blacklist <- mcols(distanceToNearest(stage27, blacklist))
+stage35 <- stage35[order(stage35$fc, decreasing = TRUE)]
+stage35$blacklist <- mcols(distanceToNearest(stage35, blacklist))
+
+# median(stage35[1:10]$fc)
+# median(stage35[1:10]$blacklist$distance)
+# 
+# median(stage35[1001:1010]$fc)
+# median(stage35[1001:1010]$blacklist$distance)
+```
+
+Given the larger number of samples used to call peaks in the merged set, the peaks tend to be a bit wider. Thus, in some cases, the peaks overlap blacklisted regions in the merged set whereas it misses it in the per-stage calls.
+
+
+```{r visual_check, eval=FALSE}
+## tracks
+bw.norm <- readRDS("/user01/group_folders/Personal/Ximena/SOMITES/ATACseq/DATAanalysis/insertionCounts_100bpWindows_bigWigs_NORM.Rds")
+
+samples <- meta[meta$stage==18,]$sample
+toPlot <- resize(stage18, width(stage18)+10000, fix="center")
+toPlot <- toPlot[order(toPlot$fc, decreasing = TRUE)]
+
+i=1
+par(mfrow=c(10,1), mar=c(1,2,1,1))
+for(sample in samples){
+  cov <- as.numeric(bw.norm[[sample]][[seqnames(toPlot[i])]][ranges(toPlot[i])])
+  barplot(cov, width = 1, space=0, las=2)
+  abline(v=c(5000, length(cov)-5000), lty=2)
+}
+i <- i+1
+```
+
+
+#### Union of stage-specific calls
+
+An alternative way to define a peakset would be to take the union of the peaks called from each stage.
+
+```{r union}
+un <- union(stageSets[["stage8"]], stageSets[["stage18"]])
+un <- union(un, stageSets[["stage21"]])
+un <- union(un, stageSets[["stage25"]])
+un <- union(un, stageSets[["stage27"]])
+un <- union(un, stageSets[["stage35"]])
+```
+
+This would result in `r length(un)` peaks, compared to the `r length(peakSet)` peaks called in the merged set from all 50 samples. Despite the similar numbers, the overlap is not as perfect
+
+```{r private}
+df <- data.frame(setSize=length(un), overlap=length(unique(subjectHits(findOverlaps(peakSet, un)))))
+df <- rbind(df, data.frame(setSize=length(peakSet), overlap=length(unique(queryHits(findOverlaps(peakSet, un))))))
+row.names(df) <- c("union", "merged")
+df$private <- df$setSize-df$overlap
+df
+```
+
+We know the nearly 20,000 peaks private to the union set are mostly false-positives and a few missed peaks due to their proximity to blacklisted regions. What about the ~16,000 peaks only identified when all 50 samples are used?
+
+Again, they tend to have small fold-changes, which supports them being called only when the depth is increased by using all 50 samples. Many also have big FDRs, but not all.
+
+```{r private_merged}
+peakSet$private <- 1
+peakSet$private[unique(queryHits(findOverlaps(peakSet, un)))] <- 0
+
+df <- data.frame(fc=peakSet$fc, qval=peakSet$fdr, private=peakSet$private)
+
+plots <- list()
+df <- df[order(df$fc, decreasing = TRUE),]
+plots[[1]] <- ggplot(df, aes(as.factor(private), 1:nrow(df))) + geom_violin() + geom_boxplot(width=0.1) + xlab("missed in union set") + ylab("rank fold-change over background") + th
+df <- df[order(df$qval, decreasing = TRUE),]
+plots[[2]] <- ggplot(df, aes(as.factor(private), 1:nrow(df))) + geom_violin() + geom_boxplot(width=0.1) + xlab("missed in union set") + ylab("rank q-value") + th
+multiplot(plotlist = plots, cols=2)
+```
+
+Overall, it looks like the gained peaks are generally low abundance on a per-sample basis and become significant when all samples are used, but fail to pass the noise threshold with fewer samples. A few of the peaks with large fold-changes are very sharp and it is unclear why they don't get called on a per-stage basis. They might be flagged as artefacts?
+
+```{r visual_check2, eval=FALSE}
+samples <- meta[meta$stage==8,]$sample
+toPlot <- resize(peakSet[peakSet$private==1,], width(peakSet[peakSet$private==1,])+10000, fix="center")
+toPlot <- toPlot[order(toPlot$fc, decreasing = TRUE)]
+
+i=1
+par(mfrow=c(10,1), mar=c(1,2,1,1))
+for(sample in samples){
+  cov <- as.numeric(bw.norm[[sample]][[seqnames(toPlot[i])]][ranges(toPlot[i])])
+  barplot(cov, width = 1, space=0, las=2)
+  abline(v=c(5000, length(cov)-5000), lty=2)
+}
+i <- i+1
+```
+
+Overall, calling peaks using all samples together seems to be a good approach, that protects against stage-specific false-positives. We might get a few false positives also, but at least these won't be related to the stages, so shouldn't affect the differential accessibility analysis too much. 
+
+Most of the peaks gained through increased depth are filtered out before testing due to insufficient data on a per-sample basis. 
+
+```{r info}
+sessionInfo()
+```
+
