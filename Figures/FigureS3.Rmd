@@ -1,5 +1,5 @@
 ---
-title: "Figure S2"
+title: "Figure S3"
 date: "05 July 2019"
 output:
   html_document:
