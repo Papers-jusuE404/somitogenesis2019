@@ -1,0 +1,41 @@
+---
+title: "Figure S4"
+date: "05 July 2019"
+output:
+  html_document:
+    keep_md: true
+    fig_width: 5
+    fig_height: 5
+    fig_caption: yes
+    code_folding: hide
+    toc: true
+    toc_float: 
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+```
+
+### Figure S4
+
+To show that the left and right somites from the same pair are equivalent. Differential expression analysis of four pairs of somites, comparing the left versus right somites.
+
+```{r MAplot}
+res <- read.table(paste0(dir, "RNA-seq/results/00_DEresults_side_allSomites.tsv"))
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS4_MAplot_sides.pdf"), width = 5, height = 5, useDingbats=FALSE)
+plot(res$logCPM, res$logFC, pch=16, cex=0.7, bty="l", xlab=expression('log'[2]*' average expression'), ylab=expression('log'[2]*' fold-change'))
+abline(h=0, lwd=2, col="red")
+legend("topright", legend = c("DE", "non-DE"), pch=16, col=c("red", "black"))
+# dev.off()
+```
+
+
+
+```{r info}
+sessionInfo()
+```
+
