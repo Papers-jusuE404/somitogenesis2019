@@ -15,13 +15,14 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(edgeR)
-library(DESeq2)
-library(sva)
+library(csaw)
 library(ggplot2)
+library(edgeR)
 library(RColorBrewer)
 
 dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+
+th <- theme_bw() + theme(axis.text.x = element_text(size=10), axis.title.x = element_text(size=10), axis.text.y = element_text(size=10), axis.title.y = element_text(size=10), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5, size=10))
 
 #### FUNCTIONS
 multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
@@ -61,61 +62,150 @@ multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
 
 ### Figure S3
 
-Figure on batch effect removal from RNA-seq data.
+Figure on normalisation of ATAC-seq data.
 
-```{r data}
-meta <- read.table(paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
-meta <- meta[meta$use==1,]
-
-# data <- read.table(paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"))
-data <- read.table(paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"))
-dataNorm <- read.table(paste0(dir, "RNA-seq/data/geneCounts.NORM_logCPM.tsv"))
-
-pcs <- read.table(paste0(dir, "RNA-seq/results/02_pcs_residuals.tab"))
+```{r meta}
+meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq_GQ.tsv"), stringsAsFactors = FALSE, header = TRUE)
 ```
 
-PCA of the normalised data, without controlling for batch effects. There is clear separation by batch within each stage.
+#### Raw data
 
-```{r norm, fig.width=8, fig.height=4}
-## variance-stabilise data
-data <- data[row.names(dataNorm), colnames(dataNorm)]
-data.vst <- vst(as.matrix(data[,-1]))
+MA plots show trended biases.
 
-vars <- rowVars(data.vst)
-names(vars) <- row.names(dataNorm)
-pca <- prcomp(t(dataNorm[names(vars[order(vars, decreasing = TRUE)])[1:1000],-1]))
+Plots using 10kb bins.
 
-df <- as.data.frame(pca$x)
+```{r MAplot, fig.width=10, fig.height=5}
+background <- readRDS(paste0(dir, "ATAC-seq/results/03_backgroundCounts_10kbBins.Rds"))
+adj.counts <- cpm(asDGEList(background), log=TRUE)
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS2_MAplot_10kb.pdf"), useDingbats=FALSE, width = 7, height = 3.5)
+par(mfrow=c(1,2), mar=c(2,2,2,2))
+for (i in c(11,40)) {
+  mval <- adj.counts[,1]-adj.counts[,i]
+  smoothScatter(x=(adj.counts[,1]+adj.counts[,i])/2, y=mval, xlab="A", ylab="M", main=paste("1 vs", i), ylim=c(-4,4))
+  abline(h=0, col="red", lwd=2)
+}
+# dev.off()
+```
+
+#### Normalised data
+
+Efficiency bias normalisation doesn't help.
+
+Plots using high-abundance 150bp windows.
+
+```{r efficiency, fig.width=7, fig.height=7}
+filtered.data <- readRDS(file=paste0(dir, "ATAC-seq/results/03_windowCounts_filteredWindows.Rds"))
+
+# average counts
+abval <- aveLogCPM(asDGEList(filtered.data))
+o <- order(abval)
+
+# raw counts
+adjc <- log2(assay(filtered.data)+0.5)
+
+# normalised counts
+filtered.data <- normFactors(filtered.data, se.out = TRUE)
+re.adjc <- cpm(asDGEList(filtered.data), log=TRUE)
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS2_efficiencyNormalisation.pdf"), useDingbats=FALSE, width = 7, height = 7)
+par(mfrow=c(2,2), mar=c(2,2,2,2))
+for(i in c(11,40)){
+  mval <- adjc[,1]-adjc[,i]
+  fit <- loessFit(x=abval, y=mval)
+  smoothScatter(abval, mval, ylab="M", xlab="Average logCPM", main=paste("Raw 1 vs",i), ylim=c(-5,5))
+  lines(abval[o], fit$fitted[o], col="red")
+  abline(h=0)
+}
+for(i in c(11,40)){
+  mval <- re.adjc[,1]-re.adjc[,i]
+  fit <- loessFit(x=abval, y=mval)
+  smoothScatter(abval, mval, ylab="M", xlab="Average logCPM", main=paste("Normalised 1 vs",i), ylim=c(-5,5))
+  lines(abval[o], fit$fitted[o], col="red")
+  abline(h=0)
+}
+# dev.off()
+```
+
+Trended normalisation is necessary to remove the bias. 
+
+```{r trended, fig.width=7, fig.height=3.5}
+# normalised counts - loess
+re.adjc <- adjc - assay(filtered.data, "offset")/log(2)
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS2_trendedNormalisation.pdf"), useDingbats=FALSE, width = 7, height = 3.5)
+par(mfrow=c(1,2), mar=c(2,2,2,2))
+# for(i in c(11,40)){
+#   mval <- adjc[,1]-adjc[,i]
+#   fit <- loessFit(x=abval, y=mval)
+#   smoothScatter(abval, mval, ylab="M", xlab="Average logCPM", main=paste("Raw 1 vs",i))
+#   lines(abval[o], fit$fitted[o], col="red")
+#   abline(h=0)
+# }
+for(i in c(11,40)){
+  mval <- re.adjc[,1]-re.adjc[,i]
+  fit <- loessFit(x=abval, y=mval)
+  smoothScatter(abval, mval, ylab="M", xlab="Average logCPM", main=paste("Normalised 1 vs",i), ylim=c(-5,6.5))
+  lines(abval[o], fit$fitted[o], col="red")
+  abline(h=0)
+}
+# dev.off()
+```
+
+#### PCA
+
+```{r pca, fig.height=4, fig.width=10}
+vars <- rowVars(as.matrix(re.adjc))
+tmp <- re.adjc[order(vars, decreasing=TRUE)[1:5000],]
+pca <- prcomp(t(tmp))
+df <- cbind(pca$x, meta)
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS2_PCA_norm.pdf"), useDingbats=FALSE, width = 7, height = 3)
 plots <- list()
-plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$stage))) + labs(col="stage") + xlab("PC1") + ylab("PC2")
-plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$date))) + labs(col="batch") + xlab("PC1") + ylab("PC2")
-
-# pdf(paste0(dir, "Figures/PDFs/FigureS3_noCorrection.pdf"), useDingbats=FALSE, width = 7, height = 3.5)
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSet/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
 multiplot(plotlist = plots, cols=2)
 # dev.off()
 ```
 
-After regressing out the first 14 PCs on the residuals of the fit of interest the batch effect is gone.
-
-```{r norm.corrected, fig.width=8, fig.height=4}
-dataNorm.pca <- removeBatchEffect(data.vst, design = model.matrix(~0+group, meta), covariates = pcs[,1:14])
-
-vars <- rowVars(dataNorm.pca)
-names(vars) <- row.names(dataNorm.pca)
-pca <- prcomp(t(dataNorm.pca[names(vars[order(vars, decreasing = TRUE)])[1:1000],]))
-
-df <- as.data.frame(pca$x)
-plots <- list()
-plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$stage))) + labs(col="stage") + xlab("PC1") + ylab("PC2")
-plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$date))) + labs(col="batch") + xlab("PC1") + ylab("PC2")
-
-# pdf(paste0(dir, "Figures/PDFs/FigureS3_correction.pdf"), useDingbats=FALSE, width = 7, height = 3.5)
-multiplot(plotlist = plots, cols=2)
+```{r corr}
+# pdf(paste0(dir, "Figures/PDFs/FigureS2_PCA_FRiP.pdf"), useDingbats=FALSE, width = 5, height = 5)
+plot(df$PC1, df$readsInPeakSet/df$goodQuality*100, bty="l", xlab="PC1", ylab="FRiP", pch=16)
+abline(lm(df$readsInPeakSet/df$goodQuality*100~df$PC1))
+mtext(side=3, line=-1, text = paste("r =", round(cor(df$PC1, df$readsInPeakSet/df$goodQuality*100),2), "(p-value = 5.276e-06)"), adj=1)
 # dev.off()
 ```
 
 
+```{r removePCs, fig.height=4, fig.width=10}
+pcs <- read.table(paste0(dir, "ATAC-seq/results/03_pcs_residuals.tab"))
 
+meta$group <- factor(paste(meta$stage, meta$somite, sep="."))
+design <- model.matrix(~0+group, meta)
+colnames(design) <- paste0("stage",levels(meta$group))
+
+norm.counts.corr.pca <- removeBatchEffect(re.adjc, design=design, covariates = pcs[,1:18])
+
+vars <- rowVars(norm.counts.corr.pca)
+tmp <- norm.counts.corr.pca[order(vars, decreasing=TRUE)[1:5000],]
+pca <- prcomp(t(tmp))
+df <- cbind(pca$x, meta)
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS2_PCA_norm_corrected.pdf"), useDingbats=FALSE, width = 7, height = 3)
+plots <- list()
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSet/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
+multiplot(plotlist = plots, cols=2)
+# dev.off()
+```
+
+```{r corrClean}
+# pdf(paste0(dir, "Figures/PDFs/FigureS2_PCA_FRiP_clean.pdf"), useDingbats=FALSE, width = 5, height = 5)
+plot(df$PC1, df$readsInPeakSet/df$goodQuality*100, bty="l", xlab="PC1", ylab="FRiP", pch=16)
+abline(lm(df$readsInPeakSet/df$goodQuality*100~df$PC1))
+mtext(side=3, line=-1, text = paste("r =", round(cor(df$PC1, df$readsInPeakSet/df$goodQuality*100),2), "(p-value = 0.099)"), adj=1)
+# dev.off()
+```
 
 ```{r info}
 sessionInfo()

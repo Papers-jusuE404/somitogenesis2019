@@ -1,6 +1,6 @@
 ---
 title: "Figure S2"
-date: "05 July 2019"
+date: "02 July 2019"
 output:
   html_document:
     keep_md: true
@@ -15,10 +15,11 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(Rsamtools)
 library(csaw)
 library(ggplot2)
-library(edgeR)
-library(RColorBrewer)
+library(zoo)
+library(UpSetR)
 
 dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
 
@@ -62,150 +63,92 @@ multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
 
 ### Figure S2
 
-Figure on normalisation of ATAC-seq data.
+This figure exemplifies the criteria used to QC the ATAC-seq data.
 
 ```{r meta}
-meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq_GQ.tsv"), stringsAsFactors = FALSE, header = TRUE)
+meta <- read.table(paste0(dir, "ATAC-seq/data/metadata_ATACseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
 ```
 
-#### Raw data
+#### Insert size distribution
 
-MA plots show trended biases.
+```{r insSize, fig.width=12, fig.height=2.5}
+## in 01_insertSizeDistribution.Rmd we obtain the fragmen sizes for each clean BAM
+diagnostics <- readRDS(paste0(dir, "ATAC-seq/results/01_mappingStats_ATACseq.Rds"))
+stopifnot(identical(substr(names(diagnostics), 1, nchar(names(diagnostics))-14), meta$sample))
 
-Plots using 10kb bins.
+## get a representative sample from each insert size score group
+samples <- c("e23_SII-2", "e16_SI-2", "e26_SII-2", "e32_SII-2", "e14_SII-2")
 
-```{r MAplot, fig.width=10, fig.height=5}
-background <- readRDS(paste0(dir, "ATAC-seq/results/03_backgroundCounts_10kbBins.Rds"))
-adj.counts <- cpm(asDGEList(background), log=TRUE)
-
-# pdf(paste0(dir, "Figures/PDFs/FigureS2_MAplot_10kb.pdf"), useDingbats=FALSE, width = 7, height = 3.5)
-par(mfrow=c(1,2), mar=c(2,2,2,2))
-for (i in c(11,40)) {
-  mval <- adj.counts[,1]-adj.counts[,i]
-  smoothScatter(x=(adj.counts[,1]+adj.counts[,i])/2, y=mval, xlab="A", ylab="M", main=paste("1 vs", i), ylim=c(-4,4))
-  abline(h=0, col="red", lwd=2)
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_insSizeDist.pdf"), useDingbats=FALSE, width = 15, height = 3)
+par(mfrow=c(1,5), mar=c(2,2,2,2))
+for(i in 0:4){
+  plot(density(diagnostics[[grep(samples[i+1], names(diagnostics))]]$sizes), axes=FALSE, main=paste("score =",i), xlab="", ylab="", lwd=3, xlim=c(0,1000))
+  box(bty="l"); axis(1)
 }
 # dev.off()
 ```
 
-#### Normalised data
+```{r corrs, fig.width=9, fig.height=3}
+plots <- list()
+plots[[1]] <- ggplot(meta, aes(as.factor(insSizeDist), size)) + geom_boxplot() + ggtitle("DNA fragment size") + xlab("insert size dist score") + ylab("bp") + th
+plots[[2]] <- ggplot(meta, aes(as.factor(insSizeDist), log10(conc))) + geom_boxplot() + ggtitle("DNA concentration") + xlab("insert size dist score") + ylab(expression('log'[10]*' [nM]')) + th
+plots[[3]] <- ggplot(meta, aes(as.factor(insSizeDist), goodQuality/1e6)) + geom_boxplot() + ggtitle("Total unique GQ alignments") + xlab("insert size dist score") + ylab("million") + th
 
-Efficiency bias normalisation doesn't help.
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_insSizeDist_corrs.pdf"), useDingbats=FALSE, width = 12, height = 4)
+multiplot(plotlist = plots, cols=3)
+# dev.off()
+```
 
-Plots using high-abundance 150bp windows.
+#### TSS enrichment
 
-```{r efficiency, fig.width=7, fig.height=7}
-filtered.data <- readRDS(file=paste0(dir, "ATAC-seq/results/03_windowCounts_filteredWindows.Rds"))
+```{r tss, fig.width=12, fig.height=2.5}
+tss <- readRDS(paste0(dir, "ATAC-seq/results/02_TSSinsertionCounts.Rds"))
+tss.norm <- t(do.call("cbind", lapply(tss, function(x) colMeans(x)/mean(colMeans(x[,c(1:100,1901:2001)])))))
 
-# average counts
-abval <- aveLogCPM(asDGEList(filtered.data))
-o <- order(abval)
-
-# raw counts
-adjc <- log2(assay(filtered.data)+0.5)
-
-# normalised counts
-filtered.data <- normFactors(filtered.data, se.out = TRUE)
-re.adjc <- cpm(asDGEList(filtered.data), log=TRUE)
-
-# pdf(paste0(dir, "Figures/PDFs/FigureS2_efficiencyNormalisation.pdf"), useDingbats=FALSE, width = 7, height = 7)
-par(mfrow=c(2,2), mar=c(2,2,2,2))
-for(i in c(11,40)){
-  mval <- adjc[,1]-adjc[,i]
-  fit <- loessFit(x=abval, y=mval)
-  smoothScatter(abval, mval, ylab="M", xlab="Average logCPM", main=paste("Raw 1 vs",i), ylim=c(-5,5))
-  lines(abval[o], fit$fitted[o], col="red")
-  abline(h=0)
-}
-for(i in c(11,40)){
-  mval <- re.adjc[,1]-re.adjc[,i]
-  fit <- loessFit(x=abval, y=mval)
-  smoothScatter(abval, mval, ylab="M", xlab="Average logCPM", main=paste("Normalised 1 vs",i), ylim=c(-5,5))
-  lines(abval[o], fit$fitted[o], col="red")
-  abline(h=0)
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_TSSenrich.pdf"), useDingbats=FALSE, width = 15, height = 3)
+par(mfrow=c(1,5), mar=c(2,2,2,2))
+for(sample in samples){
+  plot(rollmean(tss.norm[sample,], k=25), type="l", lwd=3, main=sample, xlab="", ylab="", ylim=c(1,8), axes=FALSE)
+  box(bty="l"); axis(1, at=c(0,1000,2000), labels = c("-1kb","TSS","1kb")); axis(2,las=2)
+  abline(h=5, lty=2, lwd=2)
 }
 # dev.off()
 ```
 
-Trended normalisation is necessary to remove the bias. 
+#### Peak calling
 
-```{r trended, fig.width=7, fig.height=3.5}
-# normalised counts - loess
-re.adjc <- adjc - assay(filtered.data, "offset")/log(2)
-
-# pdf(paste0(dir, "Figures/PDFs/FigureS2_trendedNormalisation.pdf"), useDingbats=FALSE, width = 7, height = 3.5)
-par(mfrow=c(1,2), mar=c(2,2,2,2))
-# for(i in c(11,40)){
-#   mval <- adjc[,1]-adjc[,i]
-#   fit <- loessFit(x=abval, y=mval)
-#   smoothScatter(abval, mval, ylab="M", xlab="Average logCPM", main=paste("Raw 1 vs",i))
-#   lines(abval[o], fit$fitted[o], col="red")
-#   abline(h=0)
+```{r peakCalls, fig.width=8, fig.height=4, message=FALSE}
+# data_summary <- function(x) {
+#    m <- mean(x)
+#    ymin <- m-sd(x)
+#    ymax <- m+sd(x)
+#    return(c(y=m,ymin=ymin,ymax=ymax))
 # }
-for(i in c(11,40)){
-  mval <- re.adjc[,1]-re.adjc[,i]
-  fit <- loessFit(x=abval, y=mval)
-  smoothScatter(abval, mval, ylab="M", xlab="Average logCPM", main=paste("Normalised 1 vs",i), ylim=c(-5,6.5))
-  lines(abval[o], fit$fitted[o], col="red")
-  abline(h=0)
-}
-# dev.off()
-```
 
-#### PCA
+## highlight the samples used above
+meta$sel <- ifelse(meta$sample %in% samples, 1, 0)
 
-```{r pca, fig.height=4, fig.width=10}
-vars <- rowVars(as.matrix(re.adjc))
-tmp <- re.adjc[order(vars, decreasing=TRUE)[1:5000],]
-pca <- prcomp(t(tmp))
-df <- cbind(pca$x, meta)
-
-# pdf(paste0(dir, "Figures/PDFs/FigureS2_PCA_norm.pdf"), useDingbats=FALSE, width = 7, height = 3)
 plots <- list()
-plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
-plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSet/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
+plots[[1]] <- ggplot(meta, aes(as.factor(insSizeDist), nPeaks/1e3, colour=sel)) + geom_violin() + geom_jitter(width=0.15) + xlab("insert size dist score") + ylab("number of peaks x 1000") + geom_hline(yintercept = 15, lty=2, col="grey") + th + theme(legend.position = "none")
+plots[[2]] <- ggplot(meta, aes(as.factor(insSizeDist), readsInPeaks/goodQuality*100, colour=sel)) + geom_violin() + geom_jitter(width=0.15) +  xlab("insert size dist score") + ylab("FRiP") + geom_hline(yintercept = 3, lty=2, col="grey") + th + theme(legend.position = "none")
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_numberPeaks.pdf"), useDingbats=FALSE, width = 8, height = 4)
 multiplot(plotlist = plots, cols=2)
 # dev.off()
 ```
 
-```{r corr}
-# pdf(paste0(dir, "Figures/PDFs/FigureS2_PCA_FRiP.pdf"), useDingbats=FALSE, width = 5, height = 5)
-plot(df$PC1, df$readsInPeakSet/df$goodQuality*100, bty="l", xlab="PC1", ylab="FRiP", pch=16)
-abline(lm(df$readsInPeakSet/df$goodQuality*100~df$PC1))
-mtext(side=3, line=-1, text = paste("r =", round(cor(df$PC1, df$readsInPeakSet/df$goodQuality*100),2), "(p-value = 5.276e-06)"), adj=1)
+
+#### Quality control
+
+```{r qc}
+qc <- data.frame(nuclosome = ifelse(meta$insSizeDist>=2, 1, 0), nPeaks = ifelse(meta$nPeaks > 15000, 1, 0), frip = ifelse(meta$readsInPeaks/meta$goodQuality*100 >= 3, 1, 0), tss = ifelse(meta$TSSscore > 4, 1, 0))
+row.names(qc) <- meta$sample
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS1_upsetPlot.pdf"), useDingbats=FALSE, width = 5, height = 5)
+upset(qc, mainbar.y.label = "number of samples", sets.x.label = "number of samples\nthat pass", text.scale=1.25)
 # dev.off()
 ```
 
-
-```{r removePCs, fig.height=4, fig.width=10}
-pcs <- read.table(paste0(dir, "ATAC-seq/results/03_pcs_residuals.tab"))
-
-meta$group <- factor(paste(meta$stage, meta$somite, sep="."))
-design <- model.matrix(~0+group, meta)
-colnames(design) <- paste0("stage",levels(meta$group))
-
-norm.counts.corr.pca <- removeBatchEffect(re.adjc, design=design, covariates = pcs[,1:18])
-
-vars <- rowVars(norm.counts.corr.pca)
-tmp <- norm.counts.corr.pca[order(vars, decreasing=TRUE)[1:5000],]
-pca <- prcomp(t(tmp))
-df <- cbind(pca$x, meta)
-
-# pdf(paste0(dir, "Figures/PDFs/FigureS2_PCA_norm_corrected.pdf"), useDingbats=FALSE, width = 7, height = 3)
-plots <- list()
-plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=as.factor(df$stage))) + labs(colour="stage")
-plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(colour=df$readsInPeakSet/df$goodQuality*100)) + scale_color_gradientn(colors=rev(brewer.pal(n=10,"RdYlBu"))) + labs(colour="FRiP")
-multiplot(plotlist = plots, cols=2)
-# dev.off()
-```
-
-```{r corrClean}
-# pdf(paste0(dir, "Figures/PDFs/FigureS2_PCA_FRiP_clean.pdf"), useDingbats=FALSE, width = 5, height = 5)
-plot(df$PC1, df$readsInPeakSet/df$goodQuality*100, bty="l", xlab="PC1", ylab="FRiP", pch=16)
-abline(lm(df$readsInPeakSet/df$goodQuality*100~df$PC1))
-mtext(side=3, line=-1, text = paste("r =", round(cor(df$PC1, df$readsInPeakSet/df$goodQuality*100),2), "(p-value = 0.099)"), adj=1)
-# dev.off()
-```
 
 ```{r info}
 sessionInfo()

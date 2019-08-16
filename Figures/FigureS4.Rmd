@@ -15,23 +15,105 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(edgeR)
+library(DESeq2)
+library(sva)
+library(ggplot2)
+library(RColorBrewer)
 
 dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
+
+#### FUNCTIONS
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols), byrow = TRUE)
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
 ```
 
 ### Figure S4
 
-To show that the left and right somites from the same pair are equivalent. Differential expression analysis of four pairs of somites, comparing the left versus right somites.
+Figure on batch effect removal from RNA-seq data.
 
-```{r MAplot}
-res <- read.table(paste0(dir, "RNA-seq/results/00_DEresults_side_allSomites.tsv"))
+```{r data}
+meta <- read.table(paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), stringsAsFactors = FALSE, header = TRUE)
+meta <- meta[meta$use==1,]
 
-# pdf(paste0(dir, "Figures/PDFs/FigureS4_MAplot_sides.pdf"), width = 5, height = 5, useDingbats=FALSE)
-plot(res$logCPM, res$logFC, pch=16, cex=0.7, bty="l", xlab=expression('log'[2]*' average expression'), ylab=expression('log'[2]*' fold-change'))
-abline(h=0, lwd=2, col="red")
-legend("topright", legend = c("DE", "non-DE"), pch=16, col=c("red", "black"))
+# data <- read.table(paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"))
+data <- read.table(paste0(dir, "RNA-seq/data/geneCounts.RAW.tsv"))
+dataNorm <- read.table(paste0(dir, "RNA-seq/data/geneCounts.NORM_logCPM.tsv"))
+
+pcs <- read.table(paste0(dir, "RNA-seq/results/02_pcs_residuals.tab"))
+```
+
+PCA of the normalised data, without controlling for batch effects. There is clear separation by batch within each stage.
+
+```{r norm, fig.width=8, fig.height=4}
+## variance-stabilise data
+data <- data[row.names(dataNorm), colnames(dataNorm)]
+data.vst <- vst(as.matrix(data[,-1]))
+
+vars <- rowVars(data.vst)
+names(vars) <- row.names(dataNorm)
+pca <- prcomp(t(dataNorm[names(vars[order(vars, decreasing = TRUE)])[1:1000],-1]))
+
+df <- as.data.frame(pca$x)
+plots <- list()
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$stage))) + labs(col="stage") + xlab("PC1") + ylab("PC2")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$date))) + labs(col="batch") + xlab("PC1") + ylab("PC2")
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS3_noCorrection.pdf"), useDingbats=FALSE, width = 7, height = 3.5)
+multiplot(plotlist = plots, cols=2)
 # dev.off()
 ```
+
+After regressing out the first 14 PCs on the residuals of the fit of interest the batch effect is gone.
+
+```{r norm.corrected, fig.width=8, fig.height=4}
+dataNorm.pca <- removeBatchEffect(data.vst, design = model.matrix(~0+group, meta), covariates = pcs[,1:14])
+
+vars <- rowVars(dataNorm.pca)
+names(vars) <- row.names(dataNorm.pca)
+pca <- prcomp(t(dataNorm.pca[names(vars[order(vars, decreasing = TRUE)])[1:1000],]))
+
+df <- as.data.frame(pca$x)
+plots <- list()
+plots[[1]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$stage))) + labs(col="stage") + xlab("PC1") + ylab("PC2")
+plots[[2]] <- ggplot(df, aes(PC1, PC2)) + geom_point(aes(col=as.factor(meta[meta$use==1,]$date))) + labs(col="batch") + xlab("PC1") + ylab("PC2")
+
+# pdf(paste0(dir, "Figures/PDFs/FigureS3_correction.pdf"), useDingbats=FALSE, width = 7, height = 3.5)
+multiplot(plotlist = plots, cols=2)
+# dev.off()
+```
+
 
 
 
