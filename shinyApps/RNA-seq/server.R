@@ -1,5 +1,6 @@
 library(shiny)
 library(DT)
+library(png)
 library(ggplot2)
 library(RColorBrewer)
 library(ggpubr)
@@ -13,6 +14,13 @@ shinyServer(
     output$plotGeneExpr <- renderPlot({
       boxplotExpr(group_by=input$group, colour_by=input$colour, gene=input$gene)
     }, height=500, width=500)
+    
+    output$schematic <- renderImage({
+      outfile <- tempfile(fileext='.png')
+      p <- readPNG("somiteNumber.png")
+      writePNG(p, target=outfile)
+      list(src = outfile, contentType = 'image/png', width = 500, height = 80)
+    }, deleteFile = TRUE)
     
     output$downloadGeneExpr <- downloadHandler(
       filename = function() { 

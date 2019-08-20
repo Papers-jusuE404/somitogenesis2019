@@ -1,6 +1,8 @@
 # helper.R
 load("data/data.RData")
 
+th <- theme_bw() + theme(axis.text.x = element_text(size=10), axis.title.x = element_text(size=12), axis.text.y = element_text(size=10), axis.title.y = element_text(size=12), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5, size=15))
+
 retrieveGeneExpr <- function(normCounts, meta, columns=c("stage", "somite", "date"), gene){
   d <- t(as.data.frame(normCounts[normCounts$gene==gene,-1]))
   stopifnot(identical(row.names(d), meta$sample))
@@ -16,9 +18,14 @@ genesAvailable <- as.character(normCounts$gene)
 genesAvailable <- genesAvailable[order(nchar(genesAvailable))]
 
 #### Gene expression
-boxplotExpr <- function(group_by=2, colour_by=3, gene="Hoxa1"){
-  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "date"))
-  p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_brewer(palette = "Purples") + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + theme( axis.title = element_text(size = 15), axis.text = element_text(size=12))
+col.stage <- brewer.pal(n=6, "YlOrRd")
+boxplotExpr <- function(group_by=4, colour_by=3, gene="Hoxa1"){
+  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
+  if(colour_by == 2){
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }else{
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }
   return(p)
 }
 
@@ -48,7 +55,7 @@ plotMAtriosStage <- function(contrast=1){
 # DE results table
 printDEtableTriosAll <- function(contrast=3){
   table <- DEtriosAll[[as.numeric(contrast)]][,-c(3:5)]
-  table <- table[table$FDR < 0.05,]
+  table <- table[table$FDR < 0.05 & abs(table$logFC) > log2(1.5),]
   table$logFC <- round(table$logFC, 2)
   table$FDR <- format(table$FDR, digits=4, width=5)
   if(sum(duplicated(table$genes))>0){
@@ -72,10 +79,10 @@ printDEtableTriosAll <- function(contrast=3){
 }
 
 printDEtableTriosStage <- function(contrast=1){
-  table <- DEtriosStage[[as.numeric(contrast)]][,-c(5:7,9)]
-  table <- table[table$FDR < 0.05,]
+  table <- DEtriosStage[[as.numeric(contrast)]][,-c(5:7)]
+  table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
   table <- table[table$stageSpecific==1,]
-  table$stageSpecific <- NULL
+  table <- table[,-c((ncol(table)-1):ncol(table))]
   table[,2] <- round(table[,2], 2)
   table[,3] <- round(table[,3], 2)
   table[,4] <- round(table[,4], 2)
@@ -101,24 +108,32 @@ printDEtableTriosStage <- function(contrast=1){
 }
 
 # plot selected gene from DE table
-boxplotExprTriosAll <- function(group_by=2, colour_by=3, contrast=3, selected=NULL){
-  table <- DEtriosAll[[as.numeric(contrast)]][,-c(4:5)]
-  table <- table[table$FDR < 0.05,]
+boxplotExprTriosAll <- function(group_by=4, colour_by=3, contrast=3, selected=NULL){
+  table <- DEtriosAll[[as.numeric(contrast)]][,-c(3:5)]
+  table <- table[table$FDR < 0.05 & abs(table$logFC) > log2(1.5),]
   gene <- as.character(table[selected,1])
   
-  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "date"))
-  p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_brewer(palette = "Purples") + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + theme(axis.title = element_text(size = 15), axis.text = element_text(size=12))
+  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
+  if(colour_by == 2){
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }else{
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }
   return(p)
 }
 
-boxplotExprTriosStage <- function(group_by=2, colour_by=3, contrast=1, selected=NULL){
+boxplotExprTriosStage <- function(group_by=4, colour_by=3, contrast=1, selected=NULL){
   table <- DEtriosStage[[as.numeric(contrast)]][,-c(5:7)]
-  table <- table[table$FDR < 0.1,]
+  table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
   table <- table[table$stageSpecific==1,]
   gene <- as.character(table[selected,1])
   
-  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "date"))
-  p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_brewer(palette = "Purples") + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)])
+  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
+  if(colour_by == 2){
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }else{
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }
   return(p)
 }
 
@@ -146,9 +161,13 @@ getGOgenesTrios <- function(level=1, selected=NULL){
   return(table)
 }
 
-boxplotExprTriosGO <- function(group_by=2, colour_by=3, gene=NULL){
-  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "date"))
-  p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_brewer(palette = "Purples") + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + theme(axis.title = element_text(size = 15), axis.text = element_text(size=12))
+boxplotExprTriosGO <- function(group_by=4, colour_by=3, gene=NULL){
+  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
+  if(colour_by == 2){
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }else{
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }
   return(p)
 }
 
@@ -158,8 +177,7 @@ boxplotExprTriosGO <- function(group_by=2, colour_by=3, gene=NULL){
 # DE results table
 printDEtableStageAll <- function(){
   table <- DEstageAll[,c(1,17,21,20)]
-  table <- table[table$FDR < 0.05,]
-  table <- table[abs(table$logFC.max) > log2(1.5),]
+  table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
   table$logCPM <- round(table$logCPM, 2)
   table$logFC.max <- round(table$logFC.max, 2)
   table$FDR <- format(table$FDR, digits=4, width=5)
@@ -185,7 +203,7 @@ printDEtableStageAll <- function(){
 
 printDEtableStageSomite <- function(contrast=1){
   table <- DEstageSomite[[as.numeric(contrast)]][,c(1,17,22,20,23)]
-  table <- table[table$FDR < 0.05,]
+  table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
   table <- table[table$somiteSpecific==1,]
   table$somiteSpecific <- NULL
   table[,2] <- round(table[,2], 2)
@@ -242,8 +260,7 @@ printDEtableStageSomite <- function(contrast=1){
 # plot selected gene from DE table
 boxplotExprStageAll <- function(group_by=2, colour_by=2, selected=NULL){
   table <- DEstageAll[,c(1,17,21,20)]
-  table <- table[table$FDR < 0.05,]
-  table <- table[abs(table$logFC.max) > log2(1.5),]
+  table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
   gene <- as.character(table[selected,1])
   
   d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "date"))
@@ -338,28 +355,23 @@ boxplotExprHoxGO <- function(gene=NULL){
 
 ##################################################
 ### prepare environment
+# library(biomaRt)
 # dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
 # ## metadata
 # meta <- read.table(paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), header = TRUE, stringsAsFactors = FALSE)
 # meta <- meta[meta$use==1,]
-# meta$somite <- as.factor(meta$somite)
+# meta$somite <- factor(meta$somite, c("SIII","SII","SI"))
 # meta$stage <- as.factor(meta$stage)
 # meta$date <- as.factor(meta$date)
 # meta$group <- as.factor(meta$group)
+# meta$somiteNumber <- factor(meta$somiteNumber, levels=c(6:8,16:21,23:27,33:35))
 # 
 # ## expression estimates
-# normCounts <- read.table(paste0(dir, "RNA-seq/data/geneCounts.NORM_logCPM.tsv"))
-# ## remove technical variation
-# pcs <- read.table(paste0(dir, "RNA-seq/results/02_pcs_residuals.tab"))
-# tmp <- removeBatchEffect(normCounts[,-1], design = model.matrix(~0+group, meta), covariates = pcs[,1:14])
-# normCounts <- cbind(normCounts[match(row.names(tmp), row.names(normCounts)),1], as.data.frame(tmp))
-# colnames(normCounts)[1] <- "gene"
-# rm(pcs); rm(tmp)
-# 
+# normCounts <- read.table(paste0(dir, "RNA-seq/data/geneCounts.NORM_batchCorrected_14PCs.tsv"))
 # identical(meta$sample, colnames(normCounts)[-1])
 # 
 # ## gene - GO mappings
-# ensembl <- useMart("ensembl", dataset="mmusculus_gene_ensembl")
+# ensembl <- useMart(host='apr2019.archive.ensembl.org', biomart='ENSEMBL_MART_ENSEMBL', dataset="mmusculus_gene_ensembl") # v96
 # GOmapping <- getBM(attributes=c('ensembl_gene_id', 'go_id'), filters = 'ensembl_gene_id', values = row.names(normCounts), mart = ensembl)
 # GOmapping <- GOmapping[GOmapping$go_id != "",]
 # 
@@ -369,7 +381,8 @@ boxplotExprHoxGO <- function(gene=NULL){
 #   DEtriosAll[[contrast]] <- read.table(paste0(dir, "RNA-seq/results/03.3_DEresults_somiteTrios_", contrast, "_pca.tsv"), stringsAsFactors = FALSE)
 # }
 # # only keep in per-stage those that are not in the average test
-# tmp <- c(row.names(DEtriosAll[["somiteIvsII"]][DEtriosAll[["somiteIvsII"]]$FDR<0.05 & abs(DEtriosAll[["somiteIvsII"]]$logFC) > log2(1.5),]), row.names(DEtriosAll[["somiteIIvsIII"]][DEtriosAll[["somiteIIvsIII"]]$FDR<0.05 & abs(DEtriosAll[["somiteIIvsIII"]]$logFC) > log2(1.5),]),
+# tmp <- c(row.names(DEtriosAll[["somiteIvsII"]][DEtriosAll[["somiteIvsII"]]$FDR<0.05 & abs(DEtriosAll[["somiteIvsII"]]$logFC) > log2(1.5),]),
+#          row.names(DEtriosAll[["somiteIIvsIII"]][DEtriosAll[["somiteIIvsIII"]]$FDR<0.05 & abs(DEtriosAll[["somiteIIvsIII"]]$logFC) > log2(1.5),]),
 #          row.names(DEtriosAll[["somiteIvsIII"]][DEtriosAll[["somiteIvsIII"]]$FDR<0.05 & abs(DEtriosAll[["somiteIvsIII"]]$logFC) > log2(1.5),]) )
 # tmp <- unique(tmp)
 # DEtriosStage <- list()
@@ -383,7 +396,7 @@ boxplotExprHoxGO <- function(gene=NULL){
 # ## stages
 # DEstageAll <- read.table(paste0(dir, "RNA-seq/results/03.3_DEresults_stage_all_pca.tsv"), stringsAsFactors = FALSE)
 # DEstageAll$logFC.max <- sapply(1:nrow(DEstageAll), function(x) DEstageAll[x,which.max(abs(DEstageAll[x,2:16]))+1])
-# keep as somite-specific only those not in average test
+# # keep as somite-specific only those not in average test
 # tmp <- row.names(DEstageAll[DEstageAll$FDR<0.05 & abs(DEstageAll$logFC.max) > log2(1.5),])
 # DEstageSomite <- list()
 # for(contrast in paste0("somite", c("I", "II", "III"))){
@@ -398,7 +411,7 @@ boxplotExprHoxGO <- function(gene=NULL){
 # # hox$geneName1 <- as.character(normCounts[hox$gene1,1])
 # # allDEgenesHox <- read.table("OneDrive/OneDrive - Cancer Research UK, Cambridge Institute/SOMITES/RNAseq/HOX/corrGenesGOtesting.tab")
 # # colnames(allDEgenesHox) <- c("name", "id")
-# # 
+# #
 # # GOresultsHox <- read.table("OneDrive/OneDrive - Cancer Research UK, Cambridge Institute/SOMITES/RNAseq/HOX/GOenrichment_HoxCorrelatedGenes.tab", sep="\t")
 # 
 # ## save
