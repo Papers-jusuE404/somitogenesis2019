@@ -13,13 +13,20 @@ shinyServer(
     #### gene expression
     output$plotGeneExpr <- renderPlot({
       boxplotExpr(group_by=input$group, colour_by=input$colour, gene=input$gene)
-    }, height=500, width=500)
+    }, height=400, width=430)
     
-    output$schematic <- renderImage({
+    output$somiteNumber <- renderImage({
       outfile <- tempfile(fileext='.png')
       p <- readPNG("somiteNumber.png")
       writePNG(p, target=outfile)
-      list(src = outfile, contentType = 'image/png', width = 500, height = 80)
+      list(src = outfile, contentType = 'image/png', width = 400, height = 70)
+    }, deleteFile = TRUE)
+    
+    output$somiteAgeVertical <- renderImage({
+      outfile <- tempfile(fileext='.png')
+      p <- readPNG("somiteAge_vertical.png")
+      writePNG(p, target=outfile)
+      list(src = outfile, contentType = 'image/png', width = 90, height = 500)
     }, deleteFile = TRUE)
     
     output$downloadGeneExpr <- downloadHandler(
@@ -27,7 +34,7 @@ shinyServer(
         paste0(input$gene, ".pdf")
       },
       content = function(file) {
-        pdf(file, width = 6, height = 6)
+        pdf(file, width = 5, height = 5)
         print(boxplotExpr(group_by=input$group, colour_by=input$colour, gene=input$gene))
         dev.off()
       }
@@ -38,14 +45,14 @@ shinyServer(
     output$MAplotTrios <- renderPlot({
       if(input$levelTrios == 1){ plotMAtriosAll(contrast=input$contrastTriosAll) }
       else{ plotMAtriosStage(contrast=input$contrastTriosStage) }
-    }, height=320, width=320)
+    }, height=275, width=275)
     
     ## DE results table
     output$DEtableTrios <- DT::renderDataTable(
       if(input$levelTrios == 1){ 
-        datatable( printDEtableTriosAll(contrast=input$contrastTriosAll), colnames = c("gene", "logFC", "FDR") )
+        datatable( printDEtableTriosAll(contrast=input$contrastTriosAll), colnames = c("gene", "logFC", "FDR"), rownames= FALSE )
       }else{
-        datatable( printDEtableTriosStage(contrast=input$contrastTriosStage), colnames = c("gene", "logFC-IvsII", "logFC-IvsIII", "logFC-IIvsIII", "FDR") )
+        datatable( printDEtableTriosStage(contrast=input$contrastTriosStage), colnames = c("gene", "logFC-IvsII", "logFC-IvsIII", "logFC-IIvsIII", "FDR"), rownames= FALSE )
       }
       , server = TRUE)
     
@@ -68,42 +75,50 @@ shinyServer(
       selDEtrios <- input$DEtableTrios_row_last_clicked
       if(length(selDEtrios)){
         if(input$levelTrios == 1){ 
-          boxplotExprTriosAll(group_by=input$groupTrios, colour_by=input$colourTrios, contrast=input$contrastTriosAll, selected=selDEtrios)
+          boxplotExprTriosAll(group_by=input$groupTrios1, colour_by=input$colourTrios1, contrast=input$contrastTriosAll, selected=selDEtrios)
         }else{
-          boxplotExprTriosStage(group_by=input$groupTrios, colour_by=input$colourTrios, contrast=input$contrastTriosStage, selected=selDEtrios)
+          boxplotExprTriosStage(group_by=input$groupTrios2, colour_by=input$colourTrios2, contrast=input$contrastTriosStage, selected=selDEtrios)
         }
       }
-    }, height=500, width=500)
+    }, height=400, width=430)
     
     output$downloadGeneExprTrios <- downloadHandler(
       filename = function() { 
         selDEtrios <- input$DEtableTrios_row_last_clicked
         if(input$levelTrios == 1){ 
-          table <- DEtriosAll[[as.numeric(input$contrastTriosAll)]][,-c(4:5)]
-          table <- table[table$FDR < 0.1,]
+          table <- DEtriosAll[[as.numeric(input$contrastTriosAll)]][,-c(3:5)]
+          table <- table[table$FDR < 0.05 & abs(table$logFC) > log2(1.5),]
           gene <- as.character(table[selDEtrios,1])
         }else{
-          table <- DEtriosStage[[as.numeric(input$contrastTriosStage)]][,-c(4:5)]
-          table <- table[table$FDR < 0.1,]
+          table <- DEtriosStage[[as.numeric(input$contrastTriosStage)]][,-c(5:7)]
+          table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
+          table <- table[table$stageSpecific==1,]
           gene <- as.character(table[selDEtrios,1])
         }
         paste0(gene, ".pdf")
       },
       content = function(file) {
         selDEtrios <- input$DEtableTrios_row_last_clicked
-        pdf(file, width = 6, height = 6)
+        pdf(file, width = 5, height = 5)
         if(input$levelTrios == 1){ 
-          print(boxplotExprTriosAll(group_by=input$groupTrios, colour_by=input$colourTrios, contrast=input$contrastTriosAll, selected=selDEtrios))
+          print(boxplotExprTriosAll(group_by=input$groupTrios1, colour_by=input$colourTrios1, contrast=input$contrastTriosAll, selected=selDEtrios))
         }else{
-          print(boxplotExprTriosStage(group_by=input$groupTrios, colour_by=input$colourTrios, contrast=input$contrastTriosStage, selected=selDEtrios))
+          print(boxplotExprTriosStage(group_by=input$groupTrios2, colour_by=input$colourTrios2, contrast=input$contrastTriosStage, selected=selDEtrios))
         }
         dev.off()
       }
     )
     
+    output$somiteAge <- renderImage({
+        outfile <- tempfile(fileext='.png')
+        p <- readPNG("somiteAge.png")
+        writePNG(p, target=outfile)
+        list(src = outfile, contentType = 'image/png', width = 450, height = 70)
+    }, deleteFile = TRUE)
+    
     ## GO enrichment resuts
     output$GOenrichmentTableTrios <- DT::renderDataTable(
-      datatable( printGOtableTrios(level=input$levelTriosGO), options = list(pageLength = 25)),
+      datatable( printGOtableTrios(level=input$levelTriosGO), options = list(pageLength = 25), rownames= FALSE),
       server=TRUE)
     
     retrieveGOlistTrios <- reactive({
@@ -125,8 +140,14 @@ shinyServer(
     
     output$plotGeneExprTriosGO <- renderPlot({
       boxplotExprTriosGO(group_by=input$groupTriosGO, colour_by=input$colourTriosGO, gene=input$GOgenesTriosSel)
-    }, height=500, width=500)
+    }, height=400, width=430)
     
+    output$somiteAgeGO <- renderImage({
+      outfile <- tempfile(fileext='.png')
+      p <- readPNG("somiteAge.png")
+      writePNG(p, target=outfile)
+      list(src = outfile, contentType = 'image/png', width = 450, height = 70)
+    }, deleteFile = TRUE)
     
     retrieveGOlistTriosSel <- reactive({
       selGOtrios <- input$GOenrichmentTableTrios_row_last_clicked
@@ -134,13 +155,26 @@ shinyServer(
     })
     output$downloadGOgeneListTrios <- downloadHandler(
       filename = function() {
-        table <- GOresultsTrios[[as.numeric(input$levelTriosGO)]]
-        table <- table[table$FDR < 0.1,-5]
+        table <- GOresultsTrios[GOresultsTrios$Fisher.classic.adj < 0.1,-6]
         selGOtrios <- input$GOenrichmentTableTrios_row_last_clicked
-        go <- row.names(table)[selGOtrios]
-        paste0("DEGs_inGOterm_", go, ".tsv") },
+        go <- table[selGOtrios,1]
+        term <- table[selGOtrios,2]
+        paste0("DEGs_inGOterm_", go, "_", term, ".tsv") },
       content = function(file) {
         write.table(retrieveGOlistTriosSel(), file, quote = FALSE, sep="\t", row.names = FALSE, col.names = FALSE)
+      }
+    )
+    
+    output$downloadGOtriosPlot <- downloadHandler(
+      filename = function() { 
+        gene=input$GOgenesTriosSel
+        paste0(gene, ".pdf")
+      },
+      content = function(file) {
+        selDEtrios <- input$DEtableTrios_row_last_clicked
+        pdf(file, width = 5, height = 5)
+        print(boxplotExprTriosGO(group_by=input$groupTriosGO, colour_by=input$colourTriosGO, gene=input$GOgenesTriosSel))
+        dev.off()
       }
     )
     
@@ -148,20 +182,20 @@ shinyServer(
     ## DE results table
     output$DEtableStage <- DT::renderDataTable(
       if(input$levelStage == 1){ 
-        datatable( printDEtableStageAll(), colnames = c("gene", "logCPM", "logFC.max", "FDR") )
+        datatable( printDEtableStageAll(), colnames = c("gene", "logCPM", "logFC.max", "FDR"), rownames = FALSE )
       }else{
-        datatable( printDEtableStageSomite(contrast=input$somiteStages), colnames = c("gene", "logCPM", "logFC", "FDR") )
+        datatable( printDEtableStageSomite(contrast=input$somiteStages), colnames = c("gene", "logCPM", "logFC", "FDR"), rownames = FALSE )
       }
       , server = TRUE)
     
     retrieveDEtableStage <- reactive({
       if(input$levelStage == 1){ printDEtableStageAll() }
-      else{ printDEtableStagePairwise(contrast=input$pairStages) }
+      else{ printDEtableStageSomite(contrast=input$somiteStages) }
     })
     output$downloadDEtableStage <- downloadHandler(
       filename = function() { 
         if(input$levelStage == 1){ "DEgenes_acrossDevelopment_overall.tsv" }
-        else{ paste0("DEgenes_acrossDevelopment_", substr(colnames(DEstage)[as.numeric(input$pairStages)+1],7,30), ".tsv") }
+        else{ paste0("DEgenes_acrossDevelopment_", names(DEstageSomite)[as.numeric(input$somiteStages)], ".tsv") }
       },
       content = function(file) {
         write.table(retrieveDEtableStage(), file, quote = FALSE, sep="\t")
@@ -175,37 +209,51 @@ shinyServer(
         if(input$levelStage == 1){ 
           boxplotExprStageAll(group_by=input$groupStage1, colour_by=input$colourStage1, selected=selDEstage)
         }else{
-          boxplotExprStagePairwise(group_by=input$groupStage2, colour_by=input$colourStage2, contrast=input$somiteStages, selected=selDEstage)
+          boxplotExprStageSomite(group_by=input$groupStage2, colour_by=input$colourStage2, contrast=input$somiteStages, selected=selDEstage)
         }
       }
-    }, height=500, width=500)
+    }, height=400, width=430)
     
     output$downloadGeneExprStage <- downloadHandler(
       filename = function() { 
         selDEstage <- input$DEtableStage_row_last_clicked
         if(input$levelStage == 1){ 
-          table <- DEstage[,c(1,17,20)]
-          table <- table[table$FDR < 0.1,]
+          table <- DEstageAll[,c(1,17,21,20)]
+          table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
           gene <- as.character(table[selDEstage,1])
         }else{
-          col <- as.numeric(contrast)+1
-          table <- DEstage[,c(1,17,col,20)]
-          table <- table[table$FDR < 0.1,]
+          table <- DEstageSomite[[as.numeric(contrast)]][,c(1,17,22,20,23)]
+          table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
+          table <- table[table$somiteSpecific==1,]
           gene <- as.character(table[selDEstage,1])
         }
         paste0(gene, ".pdf")
       },
       content = function(file) {
         selDEstage <- input$DEtableStage_row_last_clicked
-        pdf(file, width = 6, height = 6)
+        pdf(file, width = 5, height = 5)
         if(input$levelStage == 1){ 
-          print(boxplotExprStageAll(group_by=input$groupStage, colour_by=input$colourStage, selected=selDEstage))
+          print(boxplotExprStageAll(group_by=input$groupStage1, colour_by=input$colourStage1, selected=selDEstage))
         }else{
-          print(boxplotExprStagePairwise(group_by=input$groupStage, colour_by=input$colourStage, contrast=input$pairStages, selected=selDEstage))
+          print(boxplotExprStageSomite(group_by=input$groupStage2, colour_by=input$colourStage2, contrast=input$somiteStages, selected=selDEstage))
         }
         dev.off()
       }
     )
+    
+    output$somiteNumberStage <- renderImage({
+      outfile <- tempfile(fileext='.png')
+      p <- readPNG("somiteNumber.png")
+      writePNG(p, target=outfile)
+      list(src = outfile, contentType = 'image/png', width = 400, height = 70)
+    }, deleteFile = TRUE)
+    
+    output$somiteAgeStage <- renderImage({
+      outfile <- tempfile(fileext='.png')
+      p <- readPNG("somiteAge.png")
+      writePNG(p, target=outfile)
+      list(src = outfile, contentType = 'image/png', width = 450, height = 70)
+    }, deleteFile = TRUE)
     
     ## GO enrichment resuts
     output$GOenrichmentTableStage <- DT::renderDataTable(
@@ -266,7 +314,7 @@ shinyServer(
       },
       content = function(file) {
         selHox <- input$HoxCorrGenes_row_last_clicked
-        pdf(file, width = 6, height = 6)
+        pdf(file, width = 5, height = 5)
         print(plotHoxCorrGenes(idx=selHox))
         dev.off()
       }

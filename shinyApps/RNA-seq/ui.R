@@ -7,7 +7,7 @@ shinyUI(fluidPage(
         sidebarPanel(width=3,
           fluidRow(
             column(4,
-              radioButtons("group", "plot by:", choices = list("somiteNumber"=4, "somite"=3, "stage"=2), selected = 4)
+              radioButtons("group", "plot by:", choices = list("somite"=3, "stage"=2, "somiteNumber"=4), selected = 4)
             ),
             column(4,
               radioButtons("colour", "color by:", choices = list("stage"=2, "somite"=3), selected = 3)
@@ -15,16 +15,18 @@ shinyUI(fluidPage(
           ),
           fluidRow(
             div(style = "height:185px;"),
-            downloadButton('downloadGeneExpr', 'Download plot')
+            downloadButton('downloadGeneExpr', 'Plot')
           )
         ),
         mainPanel(
           fluidRow(
-            column(5,
-              selectizeInput("gene", label = h4("Gene of interest"), choices = NULL, options = list(placeholder = 'type a gene name')),
+            column(6,
+              selectizeInput("gene", label = h5("Gene of interest"), choices = NULL, options = list(placeholder = 'type a gene name')),
               plotOutput("plotGeneExpr"),
-              div(style = "height:100px;"),
-              imageOutput("schematic")
+              imageOutput("somiteNumber")
+            ),
+            column(3,
+              imageOutput("somiteAgeVertical")     
             )
           )
         )
@@ -37,34 +39,52 @@ shinyUI(fluidPage(
           conditionalPanel(
             condition = "input.levelTrios == 1",
             selectInput("contrastTriosAll", "Contrast:", 
-                        choices = list("somiteIvsII"=1, "somiteIIvsIII"=2, "somiteIvsIII"=3), selected = 3)
+                        choices = list("somiteIvsII"=1, "somiteIIvsIII"=2, "somiteIvsIII"=3), selected = 3),
+            fluidRow(
+              column(4,
+                     radioButtons("groupTrios1", "plot by:", choices = list("somite"=3, "stage"=2, "somiteNumber"=4), selected = 3)
+              ),
+              column(4,
+                     radioButtons("colourTrios1", "color by:", choices = list("stage"=2, "somite"=3), selected = 3)
+              )
+            )
           ),
           conditionalPanel(
             condition = "input.levelTrios == 2",
             selectInput("contrastTriosStage", "Contrast:", 
-                        choices = list("stage8"=1, "stage18"=2, "stage21"=3, "stage25"=4, "stage27"=5, "stage35"=6), selected = 1)
-          ),
-          fluidRow(
-            column(4,
-              radioButtons("groupTrios", "plot by:", choices = list("stage"=2, "somite"=3, "date"=4), selected = 2)
-            ),
-            column(4,
-              radioButtons("colourTrios", "color by:", choices = list("stage"=2, "somite"=3, "date"=4), selected = 3)
+                        choices = list("stage8"=1, "stage18"=2, "stage21"=3, "stage25"=4, "stage27"=5, "stage35"=6), selected = 1),
+            fluidRow(
+              column(4,
+                     radioButtons("groupTrios2", "plot by:", choices = list("somite"=3, "stage"=2, "somiteNumber"=4), selected = 2)
+              ),
+              column(4,
+                     radioButtons("colourTrios2", "color by:", choices = list("stage"=2, "somite"=3), selected = 3)
+              )
             )
           ),
-          plotOutput("MAplotTrios")
+          fluidRow(
+            plotOutput("MAplotTrios")
+          ),
+          div(style = "margin-top:-8em", 
+            fluidRow(
+              downloadButton('downloadDEtableTrios', 'DE results'),
+              downloadButton('downloadGeneExprTrios', 'Plot')
+            )
+          )
         ),
         mainPanel(
           fluidRow(
-            column(6,
+            column(7,
               h6('Click on a row to plot gene expression'),
-              DT::dataTableOutput("DEtableTrios"),
-              downloadButton('downloadDEtableTrios', 'Download DE results')
+              DT::dataTableOutput("DEtableTrios")
             ),
             column(4,
+              div(style = "height:10px;"),
               plotOutput("plotGeneExprTrios"),
-              div(style = "height:185px;"),
-              downloadButton('downloadGeneExprTrios', 'Download plot')
+              div(style = "height:10px;"),
+              div(style = "margin-left:2em",
+                  imageOutput("somiteAge")
+              )
             )
           )
         )
@@ -73,21 +93,25 @@ shinyUI(fluidPage(
     tabPanel("Somite trios - GO",
       sidebarLayout(
         sidebarPanel(width=2,
-          downloadButton('downloadTriosGOList', 'Download GO enrichment'),
-          radioButtons("groupTriosGO", "plot by:", choices = list("stage"=2, "somite"=3, "date"=4), selected = 2),
-          radioButtons("colourTriosGO", "color by:", choices = list("stage"=2, "somite"=3, "date"=4), selected = 3)
+          radioButtons("groupTriosGO", "plot by:", choices = list("somiteNumber"=4, "somite"=3, "stage"=2), selected = 3),
+          radioButtons("colourTriosGO", "color by:", choices = list("stage"=2, "somite"=3), selected = 3),
+          downloadButton('downloadTriosGOList', 'GO enrichments'),
+          downloadButton('downloadGOgeneListTrios', 'Genes in GO term'),
+          downloadButton('downloadGOtriosPlot', 'Plot')
         ),
         mainPanel(
           fluidRow(
-            column(7,
+            column(8,
               div(DT::dataTableOutput("GOenrichmentTableTrios"), style = "font-size:80%")
             ),
-            column(5,
+            column(4,
               h6('Click on a GO term to retrieve the DE genes associated with it. Select genes to plot.'),
               uiOutput("GOgenesTrios"),
               plotOutput("plotGeneExprTriosGO"),
-              div(style = "height:150px;"),
-              downloadButton('downloadGOgeneListTrios', 'Download all genes in GO term')
+              div(style = "margin-top:-2em", 
+                  div(style = "margin-left:2em",
+                  imageOutput("somiteAgeGO")
+              ))
             )
           )
         )
@@ -101,10 +125,10 @@ shinyUI(fluidPage(
             condition = "input.levelStage == 1",
             fluidRow(
               column(4,
-                radioButtons("groupStage1", "plot by:", choices = list("stage"=2, "somite"=3, "date"=4), selected = 2)
+                radioButtons("groupStage1", "plot by:", choices = list( "stage"=2, "somite"=3, "somiteNumber"=4), selected = 2)
               ),
               column(4,
-                radioButtons("colourStage1", "color by:", choices = list("stage"=2, "somite"=3, "date"=4), selected = 2)
+                radioButtons("colourStage1", "color by:", choices = list("stage"=2, "somite"=3), selected = 2)
               )
             )
           ),
@@ -113,25 +137,35 @@ shinyUI(fluidPage(
             selectInput("somiteStages", "Comparison:", choices = list("somiteI"=1, "somiteII"=2, "somiteIII"=3), selected = 1),
             fluidRow(
               column(4,
-                radioButtons("groupStage2", "plot by:", choices = list("stage"=2, "somite"=3, "date"=4), selected = 3)
+                radioButtons("groupStage2", "plot by:", choices = list("stage"=2, "somite"=3, "somiteNumber"=4), selected = 3)
               ),
               column(4,
-                radioButtons("colourStage2", "color by:", choices = list("stage"=2, "somite"=3, "date"=4), selected = 2)
+                radioButtons("colourStage2", "color by:", choices = list("stage"=2, "somite"=3), selected = 2)
               )
             )
-          )
+          ),
+          downloadButton('downloadDEtableStage', 'DE results'),
+          downloadButton('downloadGeneExprStage', 'Plot')
         ),
         mainPanel(
           fluidRow(
-            column(5,
+            column(6,
               h6('Click on a row to plot gene expression'),
-              DT::dataTableOutput("DEtableStage"),
-              downloadButton('downloadDEtableStage', 'Download DE results')
+              DT::dataTableOutput("DEtableStage")
             ),
             column(4,
               plotOutput("plotGeneExprStage"),
-              div(style = "height:185px;"),
-              downloadButton('downloadGeneExprStage', 'Download plot')
+              div(style = "height:10px;"),
+              conditionalPanel(
+                condition = "input.levelStage == 1",
+                imageOutput("somiteNumberStage")
+              ),
+              conditionalPanel(
+                condition = "input.levelStage == 2",
+                div(style = "margin-left:2.5em",
+                    imageOutput("somiteAgeStage")
+                )
+              )
             )
           )
         )

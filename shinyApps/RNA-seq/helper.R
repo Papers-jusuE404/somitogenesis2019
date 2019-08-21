@@ -23,8 +23,14 @@ boxplotExpr <- function(group_by=4, colour_by=3, gene="Hoxa1"){
   d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
   if(colour_by == 2){
     p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+    if(group_by == 3){
+      p <- p + geom_vline(xintercept = c(1.5,2.5), lty=3, col="grey")
+    }
   }else{
     p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+    if(group_by == 2){
+      p <- p + geom_vline(xintercept = seq(1.5,5.5,1), lty=3, col="grey")
+    }
   }
   return(p)
 }
@@ -58,23 +64,6 @@ printDEtableTriosAll <- function(contrast=3){
   table <- table[table$FDR < 0.05 & abs(table$logFC) > log2(1.5),]
   table$logFC <- round(table$logFC, 2)
   table$FDR <- format(table$FDR, digits=4, width=5)
-  if(sum(duplicated(table$genes))>0){
-    table$genes <- as.character(table$genes)
-    idx <- which(duplicated(table$genes))
-    g <- table[idx,]$genes
-    idx <- which(table$genes == g)
-    count <- 0
-    for(dup in g){
-      count <- count+1;
-      j <- 1
-      for(i in idx[(2*count-1):(2*count)]){
-        table[i,]$genes <- paste(dup, j, sep=".")
-        j <- j+1
-      }
-    }
-  }
-  row.names(table) <- table$genes
-  table$genes <- NULL
   return(table)
 }
 
@@ -87,23 +76,6 @@ printDEtableTriosStage <- function(contrast=1){
   table[,3] <- round(table[,3], 2)
   table[,4] <- round(table[,4], 2)
   table$FDR <- format(table$FDR, digits=4, width=5)
-  if(sum(duplicated(table$genes))>0){
-    table$genes <- as.character(table$genes)
-    idx <- which(duplicated(table$genes))
-    g <- table[idx,]$genes
-    idx <- which(table$genes == g)
-    count <- 0
-    for(dup in g){
-      count <- count+1;
-      j <- 1
-      for(i in idx[(2*count-1):(2*count)]){
-        table[i,]$genes <- paste(dup, j, sep=".")
-        j <- j+1
-      }
-    }
-  }
-  row.names(table) <- table$genes
-  table$genes <- NULL
   return(table)
 }
 
@@ -116,8 +88,14 @@ boxplotExprTriosAll <- function(group_by=4, colour_by=3, contrast=3, selected=NU
   d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
   if(colour_by == 2){
     p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+    if(group_by == 3){
+      p <- p + geom_vline(xintercept = c(1.5,2.5), lty=3, col="grey")
+    }
   }else{
     p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+    if(group_by == 2){
+      p <- p + geom_vline(xintercept = seq(1.5,5.5,1), lty=3, col="grey")
+    }
   }
   return(p)
 }
@@ -131,8 +109,14 @@ boxplotExprTriosStage <- function(group_by=4, colour_by=3, contrast=1, selected=
   d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
   if(colour_by == 2){
     p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+    if(group_by == 3){
+      p <- p + geom_vline(xintercept = c(1.5,2.5), lty=3, col="grey")
+    }
   }else{
     p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+    if(group_by == 2){
+      p <- p + geom_vline(xintercept = seq(1.5,5.5,1), lty=3, col="grey")
+    }
   }
   return(p)
 }
@@ -165,8 +149,14 @@ boxplotExprTriosGO <- function(group_by=4, colour_by=3, gene=NULL){
   d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
   if(colour_by == 2){
     p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+    if(group_by == 3){
+      p <- p + geom_vline(xintercept = c(1.5,2.5), lty=3, col="grey")
+    }
   }else{
     p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+    if(group_by == 2){
+      p <- p + geom_vline(xintercept = seq(1.5,5.5,1), lty=3, col="grey")
+    }
   }
   return(p)
 }
@@ -181,23 +171,6 @@ printDEtableStageAll <- function(){
   table$logCPM <- round(table$logCPM, 2)
   table$logFC.max <- round(table$logFC.max, 2)
   table$FDR <- format(table$FDR, digits=4, width=5)
-  if(sum(duplicated(table$genes))>0){
-    table$genes <- as.character(table$genes)
-    idx <- which(duplicated(table$genes))
-    g <- table[idx,]$genes
-    idx <- which(table$genes %in% g)
-    count <- 0
-    for(dup in g){
-      count <- count+1;
-      j <- 1
-      for(i in idx[(2*count-1):(2*count)]){
-        table[i,]$genes <- paste(dup, j, sep=".")
-        j <- j+1
-      }
-    }
-  }
-  row.names(table) <- table$genes
-  table$genes <- NULL
   return(table)
 }
 
@@ -209,81 +182,82 @@ printDEtableStageSomite <- function(contrast=1){
   table[,2] <- round(table[,2], 2)
   table[,3] <- round(table[,3], 2)
   table$FDR <- format(table$FDR, digits=4, width=5)
-  if(sum(duplicated(table$genes))>0){
-    table$genes <- as.character(table$genes)
-    idx <- which(duplicated(table$genes))
-    g <- table[idx,]$genes
-    idx <- which(table$genes == g)
-    count <- 0
-    for(dup in g){
-      count <- count+1;
-      j <- 1
-      for(i in idx[(2*count-1):(2*count)]){
-        table[i,]$genes <- paste(dup, j, sep=".")
-        j <- j+1
-      }
-    }
-  }
-  row.names(table) <- table$genes
-  table$genes <- NULL
   return(table)
 }
 
-# printDEtableStagePairwise <- function(contrast=1){
-#   col <- as.numeric(contrast)+1
-#   table <- DEstage[,c(1,17,col,20)]
-#   table <- table[table$FDR < 0.1,]
-#   table$logCPM <- round(table$logCPM, 2)
-#   table[,3] <- round(table[,3], 2)
-#   table$FDR <- format(table$FDR, digits=4, width=5)
-#   table <- table[order(abs(table[,3]), decreasing = TRUE),]
-#   if(sum(duplicated(table$genes))>0){
-#     table$genes <- as.character(table$genes)
-#     idx <- which(duplicated(table$genes))
-#     g <- table[idx,]$genes
-#     idx <- which(table$genes == g)
-#     count <- 0
-#     for(dup in g){
-#       count <- count+1;
-#       j <- 1
-#       for(i in idx[(2*count-1):(2*count)]){
-#         table[i,]$genes <- paste(dup, j, sep=".")
-#         j <- j+1
-#       }
-#     }
-#   }
-#   row.names(table) <- table$genes
-#   table$genes <- NULL
-#   return(table)
-# }
-
 # plot selected gene from DE table
-boxplotExprStageAll <- function(group_by=2, colour_by=2, selected=NULL){
+boxplotExprStageAll <- function(group_by=4, colour_by=2, selected=NULL){
   table <- DEstageAll[,c(1,17,21,20)]
   table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
   gene <- as.character(table[selected,1])
   
-  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "date"))
-  fit <- lowess(d$cpm~d$stage)
-  fit <- data.frame(x=fit$x, y=fit$y)
-  p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_brewer(palette = "Purples") + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + theme(axis.title = element_text(size = 15), axis.text = element_text(size=12))
-  if(group_by==2){ p <- p + geom_line(data=fit, aes(x,y), col="mediumorchid4", lwd=1) }
+  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
+  if(colour_by == 2){
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }else{
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }
+  if(group_by == 2){
+    fit <- lowess(d$cpm~d$stage)
+    fit <- data.frame(x=fit$x, y=fit$y)
+    p <- p + geom_line(data=fit, aes(x,y), alpha=0.5, lwd=1)
+  }
+  if(group_by == 4){
+    fit <- lowess(d$cpm~d$somiteNumber)
+    fit <- data.frame(x=fit$x, y=fit$y)
+    p <- p + geom_line(data=fit, aes(x,y), alpha=0.5, lwd=1)
+  }
+  if(group_by == 2 & colour_by == 3){
+    p <- p + geom_vline(xintercept = seq(1.5,5.5,1), lty=3, col="grey")
+  }
+  if(group_by == 3 & colour_by == 2){
+    p <- p + geom_vline(xintercept = c(1.5,2.5), lty=3, col="grey")
+  }
   return(p)
 }
 
-boxplotExprStagePairwise <- function(group_by=3, colour_by=2, contrast=1, selected=NULL){
+boxplotExprStageSomite <- function(group_by=3, colour_by=2, contrast=1, selected=NULL){
   table <- DEstageSomite[[as.numeric(contrast)]][,c(1,17,22,20,23)]
-  table <- table[table$FDR < 0.05,]
+  table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
   table <- table[table$somiteSpecific==1,]
   gene <- as.character(table[selected,1])
   
-  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "date"))
-  fit <- lowess(d$cpm~d$stage)
-  fit <- data.frame(x=fit$x, y=fit$y)
-  p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_brewer(palette = "Purples") + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)])
-  if(group_by==2){ p <- p + geom_line(data=fit, aes(x,y), col="mediumorchid4", lwd=1) }
+  d <- retrieveGeneExpr(normCounts, meta, gene=gene, columns=c("stage", "somite", "somiteNumber"))
+  if(colour_by == 2){
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=col.stage) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }else{
+    p <- ggplot(d, aes(x=d[,as.numeric(group_by)], y=cpm)) + geom_boxplot(aes(fill=d[,as.numeric(colour_by)])) + scale_fill_manual(values=alpha(rep("orchid4",3),c(0.75, 0.5, 0.25))) + xlab(colnames(d)[as.numeric(group_by)]) + ylab("log2 CPM") + ggtitle(gene) + labs(fill=colnames(d)[as.numeric(colour_by)]) + th
+  }
+  if(group_by == 2){
+    fit <- lowess(d$cpm~d$stage)
+    fit <- data.frame(x=fit$x, y=fit$y)
+    p <- p + geom_line(data=fit, aes(x,y), alpha=0.5, lwd=1)
+  }
+  if(group_by == 4){
+    fit <- lowess(d$cpm~d$somiteNumber)
+    fit <- data.frame(x=fit$x, y=fit$y)
+    p <- p + geom_line(data=fit, aes(x,y), alpha=0.5, lwd=1)
+  }
+  if(group_by == 2 & colour_by == 3){
+    p <- p + geom_vline(xintercept = seq(1.5,5.5,1), lty=3, col="grey")
+  }
+  if(group_by == 3 & colour_by == 2){
+    p <- p + geom_vline(xintercept = c(1.5,2.5), lty=3, col="grey")
+  }
   return(p)
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 # GO enrichment results
 printGOtableStage <- function(){
