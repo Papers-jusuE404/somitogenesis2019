@@ -3,7 +3,7 @@ load("data/data.RData")
 
 th <- theme_bw() + theme(axis.text.x = element_text(size=10), axis.title.x = element_text(size=12), axis.text.y = element_text(size=10), axis.title.y = element_text(size=12), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"), panel.border = element_blank(), plot.title = element_text(face="bold", hjust = 0.5, size=15))
 
-retrieveGeneExpr <- function(normCounts, meta, columns=c("stage", "somite", "date"), gene){
+retrieveGeneExpr <- function(normCounts, meta, columns=c("stage", "somite", "somiteNumber"), gene){
   d <- t(as.data.frame(normCounts[normCounts$gene==gene,-1]))
   stopifnot(identical(row.names(d), meta$sample))
   d <- cbind(d, meta[,columns])
@@ -38,6 +38,7 @@ boxplotExpr <- function(group_by=4, colour_by=3, gene="Hoxa1"){
 ## summary of DE results
 ## trios
 summaryDEtrios <- function(gene="Hoxa1"){
+  if(gene != ""){
   ## average
   i.ii <- DEtriosAll[["somiteIvsII"]][DEtriosAll[["somiteIvsII"]]$genes==gene,]
   ii.iii <- DEtriosAll[["somiteIIvsIII"]][DEtriosAll[["somiteIIvsIII"]]$genes==gene,]
@@ -82,10 +83,12 @@ summaryDEtrios <- function(gene="Hoxa1"){
   }
   p <- ggarrange(plotlist = plots, ncol = 1, nrow = 7, common.legend = TRUE, legend = "none")
   return(p)
+  }
 }
 
 ## stages
 summaryDEstages <- function(gene="Hoxa1"){
+  if(gene != ""){
   ## average
   all <- DEstageAll[DEstageAll$genes==gene,]
   
@@ -128,6 +131,7 @@ summaryDEstages <- function(gene="Hoxa1"){
   }
   p <- ggarrange(plotlist = plots, ncol = 1, nrow = 4, common.legend = TRUE, legend = "none")
   return(p)
+  }
 }
 
 
