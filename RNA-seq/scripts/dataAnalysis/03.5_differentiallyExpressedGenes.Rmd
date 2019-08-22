@@ -83,6 +83,7 @@ pcs <- read.table(paste0(dir, "RNA-seq/results/02_pcs_residuals.tab"))
 dataNorm <- removeBatchEffect(dataNorm, design = model.matrix(~0+group, meta), covariates = pcs[,1:14])
 dataNorm <- cbind(data[match(row.names(dataNorm), row.names(data)),1], as.data.frame(dataNorm))
 colnames(dataNorm)[1] <- "gene"
+write.table(dataNorm, paste0(dir, "RNA-seq/data/geneCounts.NORM_batchCorrected_14PCs.tsv"), quote = FALSE, sep="\t")
 ```
 
 ### Somite differentiation
@@ -221,6 +222,26 @@ The genes being up or downregulated (first two clusters) do so with varying rate
 heatmap.2(curvesStd[names(clust.genes[order(clust.genes)]),], trace="none", RowSideColors = as.character(clust.genes[names(clust.genes[order(clust.genes)])]), Rowv = FALSE, dendrogram = "none", col=brewer.pal(n=7, "Blues"), labRow = rep("", nrow(curvesStd)), cexCol = 0.8)
 ```
 
+```{r exploratory, eval=FALSE}
+g <- names(clust.genes)
+
+stopifnot(identical(colnames(dataNorm)[-1], meta$sample))
+
+col.somite <- factor(meta$somite, labels = brewer.pal(n=3, "Purples"))
+col.stage <- factor(meta$stage, labels = c("darkolivegreen4", "skyblue", "steelblue2", "darkorange", "darkorange2", "indianred1"))
+
+tmp <- dataNorm[g,-1]
+tmp <- t(apply(tmp, 1, function(x) x-mean(x)))
+
+o <- hclust(dist(t(tmp)))
+o <- o$order
+o <- meta[o,]
+o <- meta[order(meta$somite),]
+o <- match(o$sample, meta$sample)
+
+heatmap.2(as.matrix(tmp[,o]), trace="none", col=rev(brewer.pal(n=9,"RdGy")), labRow = rep("", nrow(tmp)), ColSideColors = as.character(col.somite)[o], Colv = F, labCol = rep("", ncol(tmp)), dendrogram = "row")
+```
+
 
 #### Biological processes {.tabset}
 
@@ -275,7 +296,6 @@ go.clust2.test <- runTest(go.clust2, algorithm = "classic", statistic = "Fisher"
 go.clust2.res <- GenTable(go.clust2, Fisher.classic = go.clust2.test, topNodes = length(score(go.clust2.test)))
 go.clust2.res$Fisher.classic.adj <- p.adjust(go.clust2.res$Fisher.classic, "fdr")
 go.clust2.res[c(1,5,10,11,12,15,16,18,20,24,29,39,47,48,54,70),]
-
 ```
 
 ##### Cluster 4
@@ -331,7 +351,12 @@ saveRDS(somiteTrios.stage, paste0(dir, "RNA-seq/results/03.5_DEgenes_somiteTrios
 saveRDS(somiteTrios.ave, paste0(dir, "RNA-seq/results/03.5_DEgenes_somiteTrios_average_pca_FDR0.05_logFC1.5.Rds"))
 write.table(somiteTrios.all, paste0(dir, "RNA-seq/results/03.5_DEgenes_somiteTrios_all.tsv"), quote=FALSE, sep="\t", row.names = FALSE)
 write.table(clust.genes, paste0(dir, "RNA-seq/results/03.5_DEgenes_somiteTrios_all_clusters.tsv"), quote=FALSE, sep="\t", col.names=FALSE, row.names=FALSE)
+
+## GO results
 write.table(go.all.res, paste0(dir, "RNA-seq/results/03.5_DEgenes_somiteTrios_all_GOresults.tsv"), quote = FALSE, sep="\t", row.names = FALSE)
+## mapping GO terms to genes
+genesInGOterms <- genesInTerm(go.all)
+saveRDS(genesInGOterms, paste0(dir, "RNA-seq/results/03.5_GOterms_genes_mapping.Rds"))
 ```
 
 ### Developmental changes
