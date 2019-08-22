@@ -200,6 +200,19 @@ shinyServer(
       }
     )
     
+    output$summaryDEtriosGO <- renderPlot({
+      summaryDEtrios_horiz(gene=input$GOgenesTriosSel)
+    }, height=100, width=500)
+    
+    output$legend_horiz <- renderImage({
+      outfile <- tempfile(fileext='.png')
+      p <- readPNG("summaryDE_legend_horiz.png")
+      writePNG(p, target=outfile)
+      list(src = outfile, contentType = 'image/png', width = 250, height = 45)
+    })
+    
+    
+    
     #### across development
     ## DE results table
     output$DEtableStage <- DT::renderDataTable(
@@ -244,7 +257,7 @@ shinyServer(
           table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
           gene <- as.character(table[selDEstage,1])
         }else{
-          table <- DEstageSomite[[as.numeric(contrast)]][,c(1,17,22,20,23)]
+          table <- DEstageSomite[[as.numeric(input$somiteStages)]][,c(1,17,22,20,23)]
           table <- table[table$FDR < 0.05 & abs(table$logFC.max) > log2(1.5),]
           table <- table[table$somiteSpecific==1,]
           gene <- as.character(table[selDEstage,1])

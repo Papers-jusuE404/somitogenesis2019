@@ -136,6 +136,17 @@ shinyUI(fluidPage(
               plotOutput("plotGeneExprTriosGO"),
               div(style = "margin-left:2em",
                 imageOutput("somiteAgeGO")
+              ),
+              div(style = "margin-top:-22em",
+                plotOutput("summaryDEtriosGO")
+              ),
+              conditionalPanel(
+                condition = "input.GOgenesTriosSel != ''",
+                div(style = "margin-top:-22em",
+                  div(style = "margin-left:10em",
+                    imageOutput("legend_horiz")
+                  )
+                )
               )
             )
           )
