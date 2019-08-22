@@ -33,7 +33,7 @@ shinyUI(fluidPage(
             ),
             column(2,
               h5("Differential expression"),
-              div(style = "margin-left:1.5em",
+              div(style = "margin-left:2.25em",
                   h6("Somite trios")
               ),
               plotOutput("summaryDEtrios"),
@@ -45,7 +45,7 @@ shinyUI(fluidPage(
             ),
             column(2,
               div(style = "margin-top:2.5em",
-                div(style = "margin-left:2.5em",
+                div(style = "margin-left:4em",
                     h6("Stages")
                 ),
                 plotOutput("summaryDEstages"),
@@ -134,10 +134,9 @@ shinyUI(fluidPage(
               h6('Click on a GO term to retrieve the DE genes associated with it. Select genes to plot.'),
               uiOutput("GOgenesTrios"),
               plotOutput("plotGeneExprTriosGO"),
-              div(style = "margin-top:-2em", 
-                  div(style = "margin-left:2em",
-                  imageOutput("somiteAgeGO")
-              ))
+              div(style = "margin-left:2em",
+                imageOutput("somiteAgeGO")
+              )
             )
           )
         )
