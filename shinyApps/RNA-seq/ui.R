@@ -20,13 +20,39 @@ shinyUI(fluidPage(
         ),
         mainPanel(
           fluidRow(
-            column(6,
+            column(5,
               selectizeInput("gene", label = h5("Gene of interest"), choices = NULL, options = list(placeholder = 'type a gene name')),
               plotOutput("plotGeneExpr"),
               imageOutput("somiteNumber")
             ),
-            column(3,
-              imageOutput("somiteAgeVertical")     
+            column(2,
+              div(style = "margin-top:18em",
+                div(style = "margin-left:2em",
+                  imageOutput("somiteAgeVertical")
+              ))
+            ),
+            column(2,
+              h5("Differential expression"),
+              div(style = "margin-left:1.5em",
+                  h6("Somite trios")
+              ),
+              plotOutput("summaryDEtrios"),
+              div(style = "margin-top:8.5em",
+                div(style = "margin-left:2em",
+                  imageOutput("legend1")
+                )
+              )
+            ),
+            column(2,
+              div(style = "margin-top:2.5em",
+                div(style = "margin-left:2.5em",
+                    h6("Stages")
+                ),
+                plotOutput("summaryDEstages"),
+                div(style = "margin-top:8em",
+                  imageOutput("legend2")
+                )
+              )
             )
           )
         )

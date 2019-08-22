@@ -35,6 +35,102 @@ boxplotExpr <- function(group_by=4, colour_by=3, gene="Hoxa1"){
   return(p)
 }
 
+## summary of DE results
+## trios
+summaryDEtrios <- function(gene="Hoxa1"){
+  ## average
+  i.ii <- DEtriosAll[["somiteIvsII"]][DEtriosAll[["somiteIvsII"]]$genes==gene,]
+  ii.iii <- DEtriosAll[["somiteIIvsIII"]][DEtriosAll[["somiteIIvsIII"]]$genes==gene,]
+  i.iii <- DEtriosAll[["somiteIvsIII"]][DEtriosAll[["somiteIvsIII"]]$genes==gene,]
+  
+  ## per-stage
+  stage <- list()
+  for(s in paste0("stage", c(8,18,21,25,27,35))){
+    stage[[s]] <- DEtriosStage[[s]][DEtriosStage[[s]]$genes==gene,]
+  }
+  
+  ## plot
+  plots <- list()
+  rng <- range(c(i.ii$logFC, i.iii$logFC, ii.iii$logFC, stage[["stage8"]][,2:4], stage[["stage18"]][,2:4],
+                 stage[["stage21"]][,2:4], stage[["stage25"]][,2:4], stage[["stage27"]][,2:4], stage[["stage35"]][,2:4]))
+  
+  # avg
+  df <- data.frame(var1=factor(c("SI", "SI", "SII"), levels = c("SI", "SII")), 
+                   var2=factor(c("SII", "SIII", "SIII"), levels = c("SIII", "SII")), 
+                   fc=c(i.ii$logFC, i.iii$logFC, ii.iii$logFC), 
+                   fdr=c(i.ii$FDR, i.iii$FDR, ii.iii$FDR))
+  df <- df[order(abs(df$fc)),]
+  plots[[1]] <- ggplot(df, aes(var1, var2, fill = fc)) + geom_tile(color = ifelse(df$fdr < 0.05 & abs(df$fc) > log2(1.5), "black", "white"), size = ifelse(df$fdr < 0.05 & abs(df$fc) > log2(1.5), 0.5, 0)) + 
+    scale_fill_gradient2(low = "steelblue", high = "indianred3", mid = "white", midpoint = 0, limit = rng, name="log2 FC") + 
+    theme_minimal() + coord_fixed() + xlab("average") + ylab("") +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+          axis.text = element_text(face=2, size=10), axis.title.x = element_text(face=2, size=12))
+  
+  # stage
+  i=2
+  for(s in paste0("stage", c(8,18,21,25,27,35))){
+    df <- data.frame(var1=factor(c("SI", "SI", "SII"), levels = c("SI", "SII")), 
+                     var2=factor(c("SII", "SIII", "SIII"), levels = c("SIII", "SII")), 
+                     fc=c(stage[[s]][,2], stage[[s]][,3], stage[[s]][,4]), fdr=stage[[s]]$FDR)
+    df <- df[order(abs(df$fc)),]
+    plots[[i]] <- ggplot(df, aes(var1, var2, fill = fc)) + geom_tile(color = ifelse(abs(df$fc) > log2(1.5), "black", "white"), size = ifelse(abs(df$fc) > log2(1.5), 0.5, 0)) + 
+      scale_fill_gradient2(low = "steelblue", high = "indianred3", mid = "white", midpoint = 0, limit = rng, name="log2 FC") + 
+      theme_minimal() + coord_fixed() + xlab(s) + ylab("") + 
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+            axis.text = element_text(face=2, size=10), axis.title.x = element_text(face=2, size=12))
+    i <- i+1
+  }
+  p <- ggarrange(plotlist = plots, ncol = 1, nrow = 7, common.legend = TRUE, legend = "none")
+  return(p)
+}
+
+## stages
+summaryDEstages <- function(gene="Hoxa1"){
+  ## average
+  all <- DEstageAll[DEstageAll$genes==gene,]
+  
+  ## per-somite
+  somite <- list()
+  for(s in paste0("somite", c("I","II","III"))){
+    somite[[s]] <- DEstageSomite[[s]][DEstageSomite[[s]]$genes==gene,]
+  }
+  
+  ## plot
+  plots <- list()
+  rng <- range(c(all[2:16], somite[["somiteI"]][2:16], somite[["somiteII"]][2:16], somite[["somiteIII"]][2:16]))
+  
+  # avg
+  df <- data.frame(var1=factor(c(rep("8",5), rep("18",4), rep("21",3), rep("25",2), "27"), levels = c("8", "18", "21", "25", "27")),
+                   var2=factor(c("18","21","25","27","35", "21","25","27","35", "25","27","35", "27","35", "35"), levels = c("18", "21", "25", "27", "35")),
+                   fc=as.numeric(all[,2:16]),
+                   fdr=all$FDR)
+  df <- df[order(abs(df$fc)),]
+  plots[[1]] <- ggplot(df, aes(var1, var2, fill = fc)) + geom_tile(color = ifelse(df$fdr < 0.05 & abs(df$fc) > log2(1.5), "black", "white"), size = ifelse(df$fdr < 0.05 & abs(df$fc) > log2(1.5), 0.5, 0)) + 
+    scale_fill_gradient2(low = "steelblue", high = "indianred3", mid = "white", midpoint = 0, limit = rng, name="log2 FC") + 
+    theme_minimal() + coord_fixed() + xlab("average") + ylab("") +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+          axis.text = element_text(face=2, size=10), axis.title.x = element_text(face=2, size=12))
+  
+  # somite
+  i=2
+  for(s in paste0("somite", c("I","II","III"))){
+    df <- data.frame(var1=factor(c(rep("8",5), rep("18",4), rep("21",3), rep("25",2), "27"), levels = c("8", "18", "21", "25", "27")),
+                     var2=factor(c("18","21","25","27","35", "21","25","27","35", "25","27","35", "27","35", "35"), levels = c("18", "21", "25", "27", "35")),
+                     fc=as.numeric(somite[[s]][,2:16]),
+                     fdr=somite[[s]]$FDR)
+    df <- df[order(abs(df$fc)),]
+    plots[[i]] <- ggplot(df, aes(var1, var2, fill = fc)) + geom_tile(color = ifelse(abs(df$fc) > log2(1.5), "black", "white"), size = ifelse(abs(df$fc) > log2(1.5), 0.5, 0)) + 
+      scale_fill_gradient2(low = "steelblue", high = "indianred3", mid = "white", midpoint = 0, limit = rng, name="log2 FC") + 
+      theme_minimal() + coord_fixed() + xlab(s) + ylab("") + 
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+            axis.text = element_text(face=2, size=10), axis.title.x = element_text(face=2, size=12))
+    i <- i+1
+  }
+  p <- ggarrange(plotlist = plots, ncol = 1, nrow = 4, common.legend = TRUE, legend = "none")
+  return(p)
+}
+
+
 #### Somite trios
 ## Differential expression results
 # MA plot

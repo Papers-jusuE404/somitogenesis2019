@@ -26,8 +26,30 @@ shinyServer(
       outfile <- tempfile(fileext='.png')
       p <- readPNG("somiteAge_vertical.png")
       writePNG(p, target=outfile)
-      list(src = outfile, contentType = 'image/png', width = 90, height = 500)
+      list(src = outfile, contentType = 'image/png', width = 75, height = 220)
     }, deleteFile = TRUE)
+    
+    output$summaryDEtrios <- renderPlot({
+      summaryDEtrios(gene=input$gene)
+    }, height=500, width=100)
+    
+    output$summaryDEstages <- renderPlot({
+      summaryDEstages(gene=input$gene)
+    }, height=500, width=120)
+    
+    output$legend1 <- renderImage({
+      outfile <- tempfile(fileext='.png')
+      p <- readPNG("summaryDE_legend_square.png")
+      writePNG(p, target=outfile)
+      list(src = outfile, contentType = 'image/png', width = 120, height = 30)
+    })
+    
+    output$legend2 <- renderImage({
+      outfile <- tempfile(fileext='.png')
+      p <- readPNG("summaryDE_legend_colour.png")
+      writePNG(p, target=outfile)
+      list(src = outfile, contentType = 'image/png', width = 120, height = 40)
+    })
     
     output$downloadGeneExpr <- downloadHandler(
       filename = function() { 
