@@ -240,9 +240,11 @@ getGOgenesTrios <- function(level=1, selected=NULL){
   table$GO.ID <- NULL
   
   go <- row.names(table)[selected]
-  table <- GOmapping[GOmapping$go_id==go,1]
-  table <- as.character(normCounts[table,1])
-  return(table)
+  if(length(go)>0){
+    table <- as.character(normCounts[GOmapping[[go]],1])
+    table <- intersect(table, trios.all$gene)
+    return(table)
+  }
 }
 
 boxplotExprTriosGO <- function(group_by=4, colour_by=3, gene=NULL){
@@ -347,18 +349,6 @@ boxplotExprStageSomite <- function(group_by=3, colour_by=2, contrast=1, selected
   return(p)
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
 # GO enrichment results
 printGOtableStage <- function(){
   table <- GOresultsStage
@@ -429,7 +419,6 @@ boxplotExprHoxGO <- function(gene=NULL){
 
 ##################################################
 ### prepare environment
-# library(biomaRt)
 # dir <- "/user01/group_folders/Personal/Ximena/SOMITES/somitogenesis2019/"
 # ## metadata
 # meta <- read.table(paste0(dir, "RNA-seq/data/metadata_RNAseq.tsv"), header = TRUE, stringsAsFactors = FALSE)
@@ -445,9 +434,7 @@ boxplotExprHoxGO <- function(gene=NULL){
 # identical(meta$sample, colnames(normCounts)[-1])
 # 
 # ## gene - GO mappings
-# ensembl <- useMart(host='apr2019.archive.ensembl.org', biomart='ENSEMBL_MART_ENSEMBL', dataset="mmusculus_gene_ensembl") # v96
-# GOmapping <- getBM(attributes=c('ensembl_gene_id', 'go_id'), filters = 'ensembl_gene_id', values = row.names(normCounts), mart = ensembl)
-# GOmapping <- GOmapping[GOmapping$go_id != "",]
+# GOmapping <- readRDS(paste0(dir, "RNA-seq/results/03.5_GOterms_genes_mapping.Rds"))
 # 
 # ## somite trios
 # DEtriosAll <- list()
@@ -466,6 +453,7 @@ boxplotExprHoxGO <- function(gene=NULL){
 #   DEtriosStage[[contrast]]$stageSpecific <- ifelse(DEtriosStage[[contrast]]$FDR < 0.05 & abs(DEtriosStage[[contrast]]$logFC.max) > log2(1.5) & !(row.names(DEtriosStage[[contrast]]) %in% tmp), 1, 0)
 # }
 # GOresultsTrios <- read.table(paste0(dir, "RNA-seq/results/03.5_DEgenes_somiteTrios_all_GOresults.tsv"), sep="\t", header = TRUE, stringsAsFactors = FALSE)
+# trios.all <- read.table(paste0(dir, "RNA-seq/results/03.5_DEgenes_somiteTrios_all.tsv"), stringsAsFactors = FALSE, row.names = 1, header = TRUE)
 # 
 # ## stages
 # DEstageAll <- read.table(paste0(dir, "RNA-seq/results/03.3_DEresults_stage_all_pca.tsv"), stringsAsFactors = FALSE)
@@ -479,6 +467,7 @@ boxplotExprHoxGO <- function(gene=NULL){
 #   DEstageSomite[[contrast]]$somiteSpecific <- ifelse(DEstageSomite[[contrast]]$FDR<0.05 & abs(DEstageSomite[[contrast]]$logFC.max) > log2(1.5) & !(row.names(DEstageSomite[[contrast]]) %in% tmp), 1, 0)
 # }
 # GOresultsStage <- read.table(paste0(dir, "RNA-seq/results/03.5_DEgenes_stages_all_GOresults.tsv"), sep="\t", header = TRUE, stringsAsFactors = FALSE)
+# stages.all <- read.table(paste0(dir, "RNA-seq/results/03.5_DEgenes_stages_all.tsv"), stringsAsFactors = FALSE, row.names = 1, header = TRUE)
 # 
 # # hox <- read.table("OneDrive/OneDrive - Cancer Research UK, Cambridge Institute/SOMITES/RNAseq/HOX/HoxCorrelatedGenes.tab", stringsAsFactors = FALSE)
 # # colnames(hox)[7] <- "geneName2"
@@ -489,7 +478,7 @@ boxplotExprHoxGO <- function(gene=NULL){
 # # GOresultsHox <- read.table("OneDrive/OneDrive - Cancer Research UK, Cambridge Institute/SOMITES/RNAseq/HOX/GOenrichment_HoxCorrelatedGenes.tab", sep="\t")
 # 
 # ## save
-# save(meta, normCounts, GOmapping, DEtriosAll, DEtriosStage, GOresultsTrios, DEstageSomite, DEstageAll, GOresultsStage, file=paste0(dir, "shinyApps/RNA-seq/data/data.RData"))
+# save(meta, normCounts, GOmapping, DEtriosAll, DEtriosStage, GOresultsTrios, trios.all, DEstageSomite, DEstageAll, GOresultsStage, stages.all, file=paste0(dir, "shinyApps/RNA-seq/data/data.RData"))
 
 
 
